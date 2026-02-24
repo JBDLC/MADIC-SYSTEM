@@ -86,19 +86,21 @@ def _parse_float(val):
 
 
 def _parse_datetime(date_val, time_val=None):
-    """Parse date et heure."""
+    """Parse date et heure. Format français jj/mm/aaaa (dayfirst=True)."""
     if pd.isna(date_val):
         return None
     if isinstance(date_val, datetime):
         return date_val
     try:
+        # dayfirst=True pour format français jj/mm/aaaa
+        def _pd_date(v):
+            return pd.to_datetime(v, dayfirst=True).to_pydatetime()
         # Colonne Date/Heure combinée
         if time_val is None and isinstance(date_val, str) and (' ' in date_val or 'T' in date_val):
-            return pd.to_datetime(date_val).to_pydatetime()
-        
+            return _pd_date(date_val)
         if time_val is not None and not pd.isna(time_val):
             if isinstance(time_val, (datetime, pd.Timestamp)):
-                d = pd.to_datetime(date_val).date()
+                d = pd.to_datetime(date_val, dayfirst=True).date()
                 t = time_val.time() if hasattr(time_val, 'time') else datetime.min.time()
                 return datetime.combine(d, t)
             time_str = str(time_val)
@@ -107,9 +109,9 @@ def _parse_datetime(date_val, time_val=None):
                 h = int(float(parts[0])) if parts else 0
                 m = int(float(parts[1])) if len(parts) > 1 else 0
                 s = int(float(parts[2])) if len(parts) > 2 else 0
-                d = pd.to_datetime(date_val).date()
+                d = pd.to_datetime(date_val, dayfirst=True).date()
                 return datetime(d.year, d.month, d.day, min(h, 23), min(m, 59), min(s, 59))
-        return pd.to_datetime(date_val).to_pydatetime()
+        return _pd_date(date_val)
     except Exception:
         return None
 
@@ -325,15 +327,19 @@ def import_excel(filepath, filename=''):
     nb_skipped = len(df) - len(to_insert)
     
     if to_insert:
-        db.session.bulk_save_objects(to_insert)
         date_min = min(r.date_heure.date() for r in to_insert)
         date_max = max(r.date_heure.date() for r in to_insert)
         
         hp = HistoryPeriod(
             date_min=date_min, date_max=date_max,
-            nb_lignes_importees=len(to_insert), filename=filename
+            nb_lignes_importees=len(to_insert), filename=filename or 'Fichier Excel'
         )
         db.session.add(hp)
+        db.session.flush()
+        
+        for r in to_insert:
+            r.history_period_id = hp.id
+        db.session.bulk_save_objects(to_insert)
         db.session.commit()
         
         return len(to_insert), nb_skipped, date_min, date_max, []

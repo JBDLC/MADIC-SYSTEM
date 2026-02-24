@@ -6,8 +6,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Base de données : PostgreSQL en prod (DATABASE_URL), SQLite en local
 DATABASE_URL = os.environ.get('DATABASE_URL')
-if DATABASE_URL and DATABASE_URL.startswith('postgres://'):
-    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+if DATABASE_URL:
+    if DATABASE_URL.startswith('postgres://'):
+        DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+    # Vérifier que c'est une vraie URL (pas un nom comme "madic_system")
+    if '://' not in DATABASE_URL:
+        DATABASE_URL = None
 
 DATABASE_PATH = os.path.join(BASE_DIR, 'madic_data.db')
 UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or os.path.join(BASE_DIR, 'uploads')

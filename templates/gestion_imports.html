@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Gestion des imports Excel</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Retour au Dashboard</a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, msg in messages %}
+            <div class="alert alert-{{ category if category in ['success','error','warning'] else 'success' }}">{{ msg }}</div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card">
+    <h2>Liste des imports</h2>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+        Supprimez un import pour retirer ses données du site. Les stats, rapports et anomalies seront mis à jour automatiquement.
+    </p>
+    {% if imports_list %}
+    <table>
+        <thead>
+            <tr>
+                <th>Fichier</th>
+                <th>Date d'import</th>
+                <th>Période des données</th>
+                <th>Lignes</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for imp in imports_list %}
+            <tr>
+                <td>{{ imp.filename or 'Fichier Excel' }}</td>
+                <td>{{ imp.imported_at.strftime('%d/%m/%Y à %H:%M') if imp.imported_at else '-' }}</td>
+                <td>{{ imp.date_min.strftime('%d/%m/%Y') if imp.date_min else '-' }} → {{ imp.date_max.strftime('%d/%m/%Y') if imp.date_max else '-' }}</td>
+                <td>{{ import_counts.get(imp.id, imp.nb_lignes_importees or 0) }}</td>
+                <td>
+                    <form action="{{ url_for('supprimer_import', import_id=imp.id) }}" method="post" style="display: inline;" onsubmit="return confirm('Supprimer cet import ? Les {{ import_counts.get(imp.id, imp.nb_lignes_importees or 0) }} lignes seront retirées et les données du site seront mises à jour.');">
+                        <button type="submit" class="btn btn-secondary" style="border-color: var(--danger); color: var(--danger); padding: 6px 12px; font-size: 0.85rem;">Supprimer</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-muted); padding: 20px;">Aucun import enregistré. Les imports apparaîtront ici après que vous ayez importé des fichiers Excel.</p>
+    {% endif %}
+</div>
+{% endblock %}

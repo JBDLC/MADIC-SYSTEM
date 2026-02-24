@@ -9,7 +9,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, sen
 from werkzeug.utils import secure_filename
 
 from config import UPLOAD_FOLDER
-from database import init_db, db, RawData
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod
 from excel_importer import import_excel
 from processor import process_all_machines
 from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel
@@ -35,6 +35,21 @@ def safe_filename(filename):
         import uuid
         s = f"import_{uuid.uuid4().hex[:8]}.{ext}"
     return s
+
+
+@app.route('/reset-data', methods=['POST'])
+def reset_data():
+    """Vide toutes les données pour permettre une réimportation propre (corrige les dates mal parsées)."""
+    try:
+        Anomalie.query.delete()
+        ProcessedData.query.delete()
+        RawData.query.delete()
+        HistoryPeriod.query.delete()
+        db.session.commit()
+        flash('Données réinitialisées. Vous pouvez réimporter votre fichier Excel (les dates seront correctement interprétées en jj/mm/aaaa).', 'success')
+    except Exception as e:
+        flash(f'Erreur : {str(e)}', 'error')
+    return redirect(url_for('index'))
 
 
 @app.route('/')
@@ -131,6 +146,38 @@ def importer_excel():
     return redirect(url_for('index'))
 
 
+@app.route('/gestion-imports')
+def gestion_imports():
+    """Page de gestion des imports Excel."""
+    imports_list = HistoryPeriod.query.order_by(HistoryPeriod.imported_at.desc()).all()
+    import_counts = {}
+    for hp in imports_list:
+        n = RawData.query.filter_by(history_period_id=hp.id).count()
+        import_counts[hp.id] = n
+    return render_template('gestion_imports.html', imports_list=imports_list, import_counts=import_counts)
+
+
+@app.route('/imports/<int:import_id>/supprimer', methods=['POST'])
+def supprimer_import(import_id):
+    """Supprime un import et met à jour les données du site."""
+    hp = HistoryPeriod.query.get_or_404(import_id)
+    nb_linked = RawData.query.filter_by(history_period_id=import_id).count()
+    if nb_linked == 0:
+        flash("Cet import n'a pas de données liées (import ancien). Utilisez 'Réinitialiser les données' pour tout effacer.", 'warning')
+        db.session.delete(hp)
+        db.session.commit()
+        return redirect(url_for('gestion_imports'))
+    try:
+        RawData.query.filter_by(history_period_id=import_id).delete()
+        db.session.delete(hp)
+        db.session.commit()
+        process_all_machines()
+        flash(f'Import supprimé ({nb_linked} lignes retirées). Les données du site ont été mises à jour.', 'success')
+    except Exception as e:
+        flash(f'Erreur lors de la suppression : {str(e)}', 'error')
+    return redirect(url_for('gestion_imports'))
+
+
 @app.route('/rapports')
 def rapports():
     """Page des rapports détaillés avec filtre par dates."""
@@ -167,12 +214,15 @@ def rapports():
         p = s.replace('/', '-').split('-')
         return f"{p[2]}/{p[1]}/{p[0]}" if len(p) == 3 else s
     date_range_display = f"du {_fmt_display(date_min_str)} au {_fmt_display(date_max_str)}" if date_min_str and date_max_str else "Aucune donnée importée"
+    date_from_display = _fmt_display(date_from_s) if date_from_s else ''
+    date_to_display = _fmt_display(date_to_s) if date_to_s else ''
     machines = get_consumption_by_machine(date_from, date_to)
     personnes = get_consumption_by_person(date_from, date_to)
     anomalies = get_anomalies_detail(date_from, date_to)
     return render_template('rapports.html',
         machines=machines, personnes=personnes, anomalies=anomalies,
         date_from=date_from_s, date_to=date_to_s,
+        date_from_display=date_from_display, date_to_display=date_to_display,
         date_min_str=date_min_str, date_max_str=date_max_str,
         date_range_display=date_range_display)
 

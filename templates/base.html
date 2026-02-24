@@ -211,6 +211,7 @@
             <div class="nav-links">
                 <a href="{{ url_for('index') }}" {% if request.endpoint and request.endpoint == 'index' %}class="active"{% endif %}>Dashboard</a>
                 <a href="{{ url_for('rapports') }}" {% if request.endpoint and request.endpoint == 'rapports' %}class="active"{% endif %}>Rapports</a>
+                <a href="{{ url_for('gestion_imports') }}" {% if request.endpoint and request.endpoint == 'gestion_imports' %}class="active"{% endif %}>Gestion des imports</a>
             </div>
             <div class="nav-right">
                 <span>FR</span>
