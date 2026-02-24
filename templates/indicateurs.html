@@ -1,0 +1,513 @@
+{% extends "base.html" %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+    .indicator-panel {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        gap: 24px;
+        align-items: start;
+    }
+    @media (max-width: 900px) {
+        .indicator-panel { grid-template-columns: 1fr; }
+    }
+    .pivot-card {
+        background: var(--card-bg);
+        border-radius: 8px;
+        padding: 20px;
+        border: 1px solid #e9ecef;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        position: sticky;
+        top: 24px;
+    }
+    .pivot-card h3 {
+        margin: 0 0 16px 0;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-muted);
+    }
+    .pivot-row {
+        margin-bottom: 16px;
+    }
+    .pivot-row label {
+        display: block;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+    }
+    .pivot-row select {
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #ddd;
+        background: white;
+        font-size: 0.9rem;
+        cursor: pointer;
+    }
+    .metrics-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    .metric-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #f0f7ff;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        border: 1px solid #cce5ff;
+        flex-wrap: wrap;
+    }
+    .metric-chip select {
+        padding: 4px 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        margin-left: 8px;
+        flex: 1;
+    }
+    .metric-chip .remove {
+        background: none;
+        border: none;
+        color: var(--danger);
+        cursor: pointer;
+        padding: 0 6px;
+        font-size: 1.1rem;
+        line-height: 1;
+    }
+    .metric-chip .remove:hover {
+        opacity: 0.8;
+    }
+    .btn-add-metric {
+        padding: 6px 12px;
+        background: #e8f4fd;
+        color: var(--accent);
+        border: 1px dashed var(--accent);
+        border-radius: 6px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        width: 100%;
+        margin-top: 4px;
+    }
+    .btn-add-metric:hover {
+        background: #d4edfa;
+    }
+    .chart-container {
+        background: var(--card-bg);
+        border-radius: 8px;
+        padding: 24px;
+        border: 1px solid #e9ecef;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        min-height: 400px;
+    }
+    .chart-wrapper {
+        position: relative;
+        height: 380px;
+    }
+    .indicator-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 380px;
+        color: var(--text-muted);
+        font-size: 1rem;
+        text-align: center;
+        padding: 40px;
+    }
+    .date-range-pivot {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    .date-range-pivot input {
+        padding: 8px 12px;
+        border-radius: 6px;
+        border: 1px solid #ddd;
+        font-size: 0.9rem;
+    }
+    .btn-apply {
+        width: 100%;
+        margin-top: 16px;
+        padding: 10px 16px;
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        cursor: pointer;
+    }
+    .btn-apply:hover {
+        background: var(--accent-hover);
+    }
+    .serie-filter-box {
+        max-height: 180px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 10px 12px;
+        background: #fafafa;
+        margin-top: 6px;
+    }
+    .serie-filter-box.hidden {
+        display: none;
+    }
+    .serie-filter-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+        font-size: 0.85rem;
+    }
+    .serie-filter-item input {
+        cursor: pointer;
+    }
+    .serie-filter-actions {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    .serie-filter-actions button {
+        padding: 4px 10px;
+        font-size: 0.75rem;
+        background: #e9ecef;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-dark);
+    }
+    .serie-filter-actions button:hover {
+        background: #dee2e6;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Créateur d'indicateurs</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Retour</a>
+    </div>
+</div>
+
+<p style="color: var(--text-muted); margin-bottom: 24px; font-size: 0.95rem;">
+    Construisez vos graphiques en choisissant les axes et les métriques. Glissez les options comme bon vous semble.
+</p>
+
+<div class="indicator-panel">
+    <div class="pivot-card">
+        <h3>Axe des abscisses (X)</h3>
+        <div class="pivot-row">
+            <label>Dimension</label>
+            <select id="x_axis">
+                <option value="date">Date</option>
+                <option value="parc">Machine (parc)</option>
+                <option value="personne">Personne</option>
+                <option value="produit">Produit</option>
+                <option value="type_anomalie">Type d'anomalie</option>
+            </select>
+        </div>
+        <div class="pivot-row" id="x_date_group_row">
+            <label>Granularité (si Date)</label>
+            <select id="x_date_group">
+                <option value="jour">Par jour</option>
+                <option value="semaine">Par semaine</option>
+                <option value="mois" selected>Par mois</option>
+                <option value="annee">Par année</option>
+            </select>
+        </div>
+
+        <h3 style="margin-top: 24px;">Axe des ordonnées (Y)</h3>
+        <div class="pivot-row">
+            <label>Métriques (une ou plusieurs)</label>
+            <div class="metrics-list" id="metrics_list"></div>
+            <button type="button" class="btn-add-metric" id="add_metric">+ Ajouter une métrique</button>
+        </div>
+
+        <h3 style="margin-top: 24px;">Plusieurs courbes (série)</h3>
+        <div class="pivot-row">
+            <label>Grouper par (optionnel)</label>
+            <select id="serie_dim">
+                <option value="">Une seule courbe</option>
+                <option value="parc">Par machine</option>
+                <option value="personne">Par personne</option>
+                <option value="produit">Par produit</option>
+            </select>
+        </div>
+        <div class="pivot-row" id="serie_filter_row">
+            <label>Viser (un ou plusieurs)</label>
+            <div class="serie-filter-box hidden" id="serie_filter_box">
+                <div class="serie-filter-actions">
+                    <button type="button" id="serie_select_all">Tout</button>
+                    <button type="button" id="serie_select_none">Aucun</button>
+                </div>
+                <div id="serie_filter_checkboxes"></div>
+            </div>
+            <p class="serie-filter-hint" id="serie_filter_hint" style="display:none; font-size:0.8rem; color:var(--text-muted); margin-top:6px;">
+                Sélectionnez les éléments à afficher (ou laissez tout cochés pour afficher toutes les courbes).
+            </p>
+        </div>
+
+        <h3 style="margin-top: 24px;">Période</h3>
+        <div class="pivot-row date-range-pivot">
+            <div>
+                <label>Du</label>
+                <input type="date" id="date_from" value="{{ date_min_str }}">
+            </div>
+            <div>
+                <label>Au</label>
+                <input type="date" id="date_to" value="{{ date_max_str }}">
+            </div>
+        </div>
+
+        <button type="button" class="btn-apply" id="btn_apply">Mettre à jour le graphique</button>
+    </div>
+
+    <div class="chart-container">
+        <div class="chart-wrapper">
+            <canvas id="chartCanvas"></canvas>
+        </div>
+        <div class="indicator-empty" id="empty_msg">Choisissez vos options et cliquez sur « Mettre à jour » pour afficher le graphique.</div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var dateMin = "{{ date_min_str }}";
+    var dateMax = "{{ date_max_str }}";
+    var chart = null;
+
+    var METRIC_OPTIONS = [
+        { id: 'quantite', label: 'Quantité carburant' },
+        { id: 'nb_releves', label: 'Nombre de relevés' },
+        { id: 'compteur', label: 'Compteur' },
+        { id: 'nb_anomalies', label: 'Nombre d\'anomalies' }
+    ];
+    var AGG_OPTIONS = {
+        quantite: [
+            { id: 'sum', label: 'Somme' },
+            { id: 'avg', label: 'Moyenne' }
+        ],
+        nb_releves: [{ id: 'count', label: 'Nombre' }],
+        compteur: [
+            { id: 'sum', label: 'Somme' },
+            { id: 'avg', label: 'Moyenne' },
+            { id: 'max', label: 'Maximum' }
+        ],
+        nb_anomalies: [{ id: 'count', label: 'Nombre' }]
+    };
+
+    function toggleDateGroup() {
+        var show = document.getElementById('x_axis').value === 'date';
+        document.getElementById('x_date_group_row').style.display = show ? 'block' : 'none';
+    }
+    document.getElementById('x_axis').addEventListener('change', toggleDateGroup);
+    toggleDateGroup();
+
+    var serieValues = [];
+    function loadSerieFilter() {
+        var dim = document.getElementById('serie_dim').value;
+        var box = document.getElementById('serie_filter_box');
+        var hint = document.getElementById('serie_filter_hint');
+        if (!dim) {
+            box.classList.add('hidden');
+            hint.style.display = 'none';
+            return;
+        }
+        box.classList.remove('hidden');
+        hint.style.display = 'block';
+        fetch(('{{ url_for("api_indicateurs_values", dimension="__DIM__") }}').replace('__DIM__', dim))
+            .then(function(r) { return r.json(); })
+            .then(function(values) {
+                serieValues = values || [];
+                var container = document.getElementById('serie_filter_checkboxes');
+                container.innerHTML = '';
+                serieValues.forEach(function(v) {
+                    var div = document.createElement('div');
+                    div.className = 'serie-filter-item';
+                    var cb = document.createElement('input');
+                    cb.type = 'checkbox';
+                    cb.value = v;
+                    cb.checked = true;
+                    cb.id = 'serie_cb_' + v.replace(/[^a-zA-Z0-9]/g, '_');
+                    var label = document.createElement('label');
+                    label.htmlFor = cb.id;
+                    label.textContent = v;
+                    label.style.cursor = 'pointer';
+                    div.appendChild(cb);
+                    div.appendChild(label);
+                    container.appendChild(div);
+                });
+            });
+    }
+    document.getElementById('serie_dim').addEventListener('change', loadSerieFilter);
+    loadSerieFilter();
+
+    document.getElementById('serie_select_all').addEventListener('click', function() {
+        document.querySelectorAll('#serie_filter_checkboxes input[type=checkbox]').forEach(function(cb) { cb.checked = true; });
+    });
+    document.getElementById('serie_select_none').addEventListener('click', function() {
+        document.querySelectorAll('#serie_filter_checkboxes input[type=checkbox]').forEach(function(cb) { cb.checked = false; });
+    });
+
+    function getSelectedSerieFilter() {
+        var dim = document.getElementById('serie_dim').value;
+        if (!dim) return [];
+        var checked = [];
+        document.querySelectorAll('#serie_filter_checkboxes input[type=checkbox]:checked').forEach(function(cb) {
+            checked.push(cb.value);
+        });
+        return checked;
+    }
+
+    function buildMetricChip(metricId, aggId) {
+        metricId = metricId || 'quantite';
+        var opts = AGG_OPTIONS[metricId] || [{ id: 'sum', label: 'Somme' }];
+        aggId = aggId || opts[0].id;
+        var div = document.createElement('div');
+        div.className = 'metric-chip';
+        div.dataset.metric = metricId;
+        div.dataset.agg = aggId;
+        var metricSel = document.createElement('select');
+        metricSel.className = 'metric-type';
+        metricSel.style.cssText = 'padding:4px 8px;border:1px solid #ddd;border-radius:4px;font-size:0.8rem;flex:1;max-width:140px;';
+        METRIC_OPTIONS.forEach(function(m) {
+            var opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = m.label;
+            if (m.id === metricId) opt.selected = true;
+            metricSel.appendChild(opt);
+        });
+        var aggSel = document.createElement('select');
+        aggSel.className = 'metric-agg';
+        opts.forEach(function(o) {
+            var opt = document.createElement('option');
+            opt.value = o.id;
+            opt.textContent = o.label;
+            if (o.id === aggId) opt.selected = true;
+            aggSel.appendChild(opt);
+        });
+        var rmBtn = document.createElement('button');
+        rmBtn.type = 'button';
+        rmBtn.className = 'remove';
+        rmBtn.title = 'Supprimer';
+        rmBtn.textContent = '×';
+        div.appendChild(metricSel);
+        div.appendChild(aggSel);
+        div.appendChild(rmBtn);
+        metricSel.addEventListener('change', function() {
+            var m = this.value;
+            div.dataset.metric = m;
+            var newOpts = AGG_OPTIONS[m] || [{ id: 'sum', label: 'Somme' }];
+            aggSel.innerHTML = '';
+            newOpts.forEach(function(o) {
+                var opt = document.createElement('option');
+                opt.value = o.id;
+                opt.textContent = o.label;
+                aggSel.appendChild(opt);
+            });
+            div.dataset.agg = newOpts[0].id;
+        });
+        aggSel.addEventListener('change', function() { div.dataset.agg = this.value; });
+        rmBtn.addEventListener('click', function() {
+            if (document.querySelectorAll('.metric-chip').length > 1) div.remove();
+        });
+        return div;
+    }
+
+    document.getElementById('metrics_list').appendChild(buildMetricChip('quantite', 'sum'));
+    document.getElementById('add_metric').addEventListener('click', function() {
+        document.getElementById('metrics_list').appendChild(buildMetricChip('quantite', 'sum'));
+    });
+
+    function getYMetrics() {
+        var parts = [];
+        document.querySelectorAll('.metric-chip').forEach(function(chip) {
+            var m = chip.dataset.metric || 'quantite';
+            var a = chip.dataset.agg || (m === 'nb_anomalies' ? 'count' : 'sum');
+            if (m === 'nb_releves') a = 'count';
+            parts.push(m + '|' + a);
+        });
+        return parts.join(';');
+    }
+
+    function loadChart() {
+        var xAxis = document.getElementById('x_axis').value;
+        var xDateGroup = document.getElementById('x_date_group').value;
+        var serieDim = document.getElementById('serie_dim').value || '';
+        var dateFrom = document.getElementById('date_from').value;
+        var dateTo = document.getElementById('date_to').value;
+        var yMetrics = getYMetrics();
+
+        var selectedSeries = getSelectedSerieFilter();
+        var url = '{{ url_for("api_indicateurs_data") }}?x_axis=' + encodeURIComponent(xAxis) +
+            '&x_date_group=' + encodeURIComponent(xDateGroup) +
+            '&serie_dim=' + encodeURIComponent(serieDim) +
+            '&y_metrics=' + encodeURIComponent(yMetrics) +
+            (dateFrom ? '&date_from=' + encodeURIComponent(dateFrom) : '') +
+            (dateTo ? '&date_to=' + encodeURIComponent(dateTo) : '');
+        if (serieDim && selectedSeries.length > 0) {
+            url += '&serie_filter=' + encodeURIComponent(selectedSeries.join(','));
+        }
+
+        fetch(url)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    alert('Erreur : ' + data.error);
+                    return;
+                }
+                if (!data.labels || data.labels.length === 0) {
+                    document.getElementById('empty_msg').style.display = 'flex';
+                    document.getElementById('empty_msg').textContent = 'Aucune donnée pour cette configuration. Essayez d\'autres options ou une autre période.';
+                    if (chart) { chart.destroy(); chart = null; }
+                    return;
+                }
+                document.getElementById('empty_msg').style.display = 'none';
+
+                var labels = data.labels.map(function(l) {
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(l)) {
+                        var parts = l.split('-');
+                        var mois = ['Jan','Fév','Mar','Avr','Mai','Juin','Juil','Août','Sep','Oct','Nov','Déc'];
+                        return mois[parseInt(parts[1],10)-1] + ' ' + parts[0];
+                    }
+                    return l;
+                });
+
+                if (chart) chart.destroy();
+                var ctx = document.getElementById('chartCanvas').getContext('2d');
+                chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: data.datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'top' }
+                        },
+                        scales: {
+                            x: {
+                                title: { display: true, text: 'Axe X' }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                title: { display: true, text: 'Valeur' }
+                            }
+                        }
+                    }
+                });
+            })
+            .catch(function(err) {
+                alert('Erreur de chargement : ' + err);
+            });
+    }
+
+    document.getElementById('btn_apply').addEventListener('click', loadChart);
+})();
+</script>
+{% endblock %}

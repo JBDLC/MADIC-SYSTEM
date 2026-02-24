@@ -5,7 +5,7 @@ Lancer avec : py app.py
 """
 import os
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
 from werkzeug.utils import secure_filename
 
 from config import UPLOAD_FOLDER
@@ -13,6 +13,7 @@ from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPerio
 from excel_importer import import_excel
 from processor import process_all_machines
 from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel
+from indicators import get_indicator_data, get_available_values
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24).hex()
@@ -176,6 +177,82 @@ def supprimer_import(import_id):
     except Exception as e:
         flash(f'Erreur lors de la suppression : {str(e)}', 'error')
     return redirect(url_for('gestion_imports'))
+
+
+@app.route('/indicateurs')
+def indicateurs():
+    """Page créateur d'indicateurs - graphiques personnalisables."""
+    date_min, date_max = get_date_range()
+    def _to_iso(d):
+        if d is None:
+            return ''
+        if hasattr(d, 'isoformat'):
+            return d.isoformat()
+        return str(d)[:10] if d else ''
+    return render_template('indicateurs.html',
+        date_min_str=_to_iso(date_min),
+        date_max_str=_to_iso(date_max))
+
+
+@app.route('/api/indicateurs/data')
+def api_indicateurs_data():
+    """API retournant les données agrégées pour le graphique (JSON)."""
+    x_axis = request.args.get('x_axis', 'date')
+    x_date_group = request.args.get('x_date_group', 'mois')
+    serie_dim = request.args.get('serie_dim') or None
+    if serie_dim == '':
+        serie_dim = None
+    
+    y_metrics_raw = request.args.get('y_metrics', 'quantite|sum')
+    y_metrics = []
+    for part in y_metrics_raw.split(';'):
+        part = part.strip()
+        if not part:
+            continue
+        sp = part.split('|')
+        if len(sp) >= 2:
+            y_metrics.append({'metric': sp[0], 'agg': sp[1]})
+        else:
+            y_metrics.append({'metric': 'quantite', 'agg': 'sum'})
+    if not y_metrics:
+        y_metrics = [{'metric': 'quantite', 'agg': 'sum'}]
+    
+    date_from = date_to = None
+    try:
+        df = request.args.get('date_from', '')
+        dt = request.args.get('date_to', '')
+        if df:
+            date_from = datetime.strptime(df, '%Y-%m-%d').date()
+        if dt:
+            date_to = datetime.strptime(dt, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+    
+    serie_filter_raw = request.args.get('serie_filter', '')  # machines, produits, personnes à inclure (séparés par virgule)
+    serie_filter = [v.strip() for v in serie_filter_raw.split(',') if v.strip()] if serie_filter_raw else None
+    
+    try:
+        data = get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from, date_to, serie_filter)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
+@app.route('/api/indicateurs/values/<dimension>')
+def api_indicateurs_values(dimension):
+    """API retournant les valeurs disponibles pour une dimension (parc, personne, produit)."""
+    if dimension not in ('parc', 'personne', 'produit'):
+        return jsonify([])
+    date_from = date_to = None
+    try:
+        if request.args.get('date_from'):
+            date_from = datetime.strptime(request.args.get('date_from'), '%Y-%m-%d').date()
+        if request.args.get('date_to'):
+            date_to = datetime.strptime(request.args.get('date_to'), '%Y-%m-%d').date()
+    except ValueError:
+        pass
+    values = get_available_values(dimension, date_from, date_to)
+    return jsonify(values)
 
 
 @app.route('/rapports')
