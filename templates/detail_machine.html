@@ -11,10 +11,10 @@
 </div>
 
 <form method="get" action="{{ url_for('machine_detail', parc=detail.parc) }}" class="card" style="margin-bottom: 20px;">
-    <h2>Période</h2>
+    <h2>Période (cette machine uniquement)</h2>
     <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-        <label>Du <input type="date" name="date_from" value="{{ request.args.get('date_from', date_min_str) }}"></label>
-        <label>Au <input type="date" name="date_to" value="{{ request.args.get('date_to', date_max_str) }}"></label>
+        <label>Du <input type="date" name="date_from" value="{{ date_from_val }}" min="{{ date_min_str }}" max="{{ date_max_str }}"></label>
+        <label>Au <input type="date" name="date_to" value="{{ date_to_val }}" min="{{ date_min_str }}" max="{{ date_max_str }}"></label>
         <button type="submit" class="btn btn-primary">Filtrer</button>
         <a href="{{ url_for('machine_detail', parc=detail.parc) }}" class="btn btn-secondary">Toute la période</a>
     </div>

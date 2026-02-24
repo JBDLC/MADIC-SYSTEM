@@ -129,12 +129,13 @@ def get_machine_detail(parc, date_from=None, date_to=None):
     q4 = _date_filter(q4, Anomalie, date_from, date_to)
     anomalies = q4.order_by(Anomalie.date.desc()).all()
     
+    dt_col = func.date(RawData.date_heure)
     q5 = db.session.query(
-        func.date(RawData.date_heure).label('dt'),
+        dt_col.label('dt'),
         db.func.sum(RawData.quantite).label('total'),
     ).filter(RawData.parc == parc)
     q5 = _date_filter(q5, RawData, date_from, date_to)
-    by_date = q5.group_by(func.date(RawData.date_heure)).order_by('dt').all()
+    by_date = q5.group_by(dt_col).order_by(dt_col).all()
     
     return {
         'parc': parc,
@@ -177,12 +178,13 @@ def get_person_detail(personne, date_from=None, date_to=None):
     q4 = _date_filter(q4, Anomalie, date_from, date_to)
     anomalies = q4.order_by(Anomalie.date.desc()).all()
     
+    dt_col = func.date(RawData.date_heure)
     q5 = db.session.query(
-        func.date(RawData.date_heure).label('dt'),
+        dt_col.label('dt'),
         db.func.sum(RawData.quantite).label('total'),
     ).filter(RawData.personne == personne)
     q5 = _date_filter(q5, RawData, date_from, date_to)
-    by_date = q5.group_by(func.date(RawData.date_heure)).order_by('dt').all()
+    by_date = q5.group_by(dt_col).order_by(dt_col).all()
     
     return {
         'personne': personne,

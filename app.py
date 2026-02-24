@@ -279,12 +279,10 @@ def api_indicateurs_values(dimension):
     return jsonify(values)
 
 
-@app.route('/detail/machine')
-def machine_detail():
+@app.route('/detail/machine/<path:parc>')
+def machine_detail(parc):
     """Page détail d'une machine avec graphiques et données."""
-    parc = request.args.get('parc')
-    if not parc:
-        flash('Machine non spécifiée.', 'error')
+    if not parc or not str(parc).strip():
         return redirect(url_for('index'))
     date_from = date_to = None
     try:
@@ -305,18 +303,32 @@ def machine_detail():
         if d is None:
             return ''
         return d.isoformat() if hasattr(d, 'isoformat') else str(d)[:10]
+    date_from_val = request.args.get('date_from', '') or _to_iso(date_min)
+    date_to_val = request.args.get('date_to', '') or _to_iso(date_max)
     return render_template('detail_machine.html',
         detail=detail,
         date_min_str=_to_iso(date_min),
-        date_max_str=_to_iso(date_max))
+        date_max_str=_to_iso(date_max),
+        date_from_val=date_from_val,
+        date_to_val=date_to_val)
+
+
+@app.route('/detail/machine')
+def machine_detail_redirect():
+    """Redirection si accès sans parc (ex: health check Render)."""
+    return redirect(url_for('index'))
 
 
 @app.route('/detail/personne')
-def personne_detail():
+def personne_detail_redirect():
+    """Redirection si accès sans nom."""
+    return redirect(url_for('index'))
+
+
+@app.route('/detail/personne/<path:nom>')
+def personne_detail(nom):
     """Page détail d'une personne avec graphiques et données."""
-    nom = request.args.get('nom')
-    if not nom:
-        flash('Personne non spécifiée.', 'error')
+    if not nom or not str(nom).strip():
         return redirect(url_for('index'))
     date_from = date_to = None
     try:
@@ -337,10 +349,14 @@ def personne_detail():
         if d is None:
             return ''
         return d.isoformat() if hasattr(d, 'isoformat') else str(d)[:10]
+    date_from_val = request.args.get('date_from', '') or _to_iso(date_min)
+    date_to_val = request.args.get('date_to', '') or _to_iso(date_max)
     return render_template('detail_personne.html',
         detail=detail,
         date_min_str=_to_iso(date_min),
-        date_max_str=_to_iso(date_max))
+        date_max_str=_to_iso(date_max),
+        date_from_val=date_from_val,
+        date_to_val=date_to_val)
 
 
 @app.route('/rapports')
