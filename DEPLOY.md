@@ -22,9 +22,10 @@ Si vous avez déjà une base PostgreSQL (ex. version 18) :
 
 ## Variables d'environnement
 
-| Variable      | Description                                      |
-|---------------|---------------------------------------------------|
-| `DATABASE_URL`| URL de connexion PostgreSQL (fournie par Render) |
+| Variable        | Description                                      |
+|-----------------|---------------------------------------------------|
+| `PYTHON_VERSION`| `3.11.11` — obligatoire (Python 3.14 incompatible SQLAlchemy) |
+| `DATABASE_URL`  | URL de connexion PostgreSQL (fournie par Render) |
 | `SECRET_KEY`  | Clé secrète Flask (générée automatiquement)      |
 | `PORT`        | Port d’écoute (fourni par Render)                |
 
