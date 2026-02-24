@@ -9,6 +9,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.units import cm
 from database import db, RawData, Anomalie
+from sqlalchemy import func
 
 
 def _date_filter(query, model, date_from=None, date_to=None):
@@ -24,17 +25,27 @@ def _date_filter(query, model, date_from=None, date_to=None):
     return query
 
 
-def get_stats():
-    """Retourne les statistiques pour le dashboard."""
+def get_stats(machine_filter=None, person_filter=None):
+    """
+    Retourne les statistiques pour le dashboard.
+    machine_filter: liste optionnelle de parcs à inclure (ex: ['Parc1','Parc2']). Si None, toutes.
+    person_filter: liste optionnelle de noms de personnes à inclure. Si None, toutes.
+    """
     total_carburant = db.session.query(db.func.sum(RawData.quantite)).scalar() or 0
     
-    top_machines = db.session.query(
+    q_mach = db.session.query(
         RawData.parc, db.func.sum(RawData.quantite).label('total')
-    ).group_by(RawData.parc).order_by(db.desc('total')).limit(10).all()
+    ).group_by(RawData.parc).order_by(db.desc('total'))
+    if machine_filter and len(machine_filter) > 0:
+        q_mach = q_mach.filter(RawData.parc.in_(machine_filter))
+    top_machines = q_mach.all()
     
-    top_personnes = db.session.query(
+    q_pers = db.session.query(
         RawData.personne, db.func.sum(RawData.quantite).label('total')
-    ).filter(RawData.personne != '').group_by(RawData.personne).order_by(db.desc('total')).limit(10).all()
+    ).filter(RawData.personne != '').group_by(RawData.personne).order_by(db.desc('total'))
+    if person_filter and len(person_filter) > 0:
+        q_pers = q_pers.filter(RawData.personne.in_(person_filter))
+    top_personnes = q_pers.all()
     
     nb_anomalies = Anomalie.query.count()
     
@@ -44,6 +55,18 @@ def get_stats():
         'top_personnes': top_personnes,
         'nb_anomalies': nb_anomalies,
     }
+
+
+def get_all_machines_for_filter():
+    """Retourne la liste de toutes les machines (pour le filtre du dashboard)."""
+    rows = db.session.query(RawData.parc).distinct().filter(RawData.parc != '').order_by(RawData.parc).all()
+    return [r[0] for r in rows if r[0]]
+
+
+def get_all_personnes_for_filter():
+    """Retourne la liste de toutes les personnes (pour le filtre du dashboard)."""
+    rows = db.session.query(RawData.personne).distinct().filter(RawData.personne != '').order_by(RawData.personne).all()
+    return [r[0] or '(vide)' for r in rows]
 
 
 def get_consumption_by_machine(date_from=None, date_to=None):
@@ -73,6 +96,102 @@ def get_anomalies_detail(date_from=None, date_to=None):
     q = Anomalie.query
     q = _date_filter(q, Anomalie, date_from, date_to)
     return q.order_by(Anomalie.date.desc()).all()
+
+
+def get_machine_detail(parc, date_from=None, date_to=None):
+    """Données détaillées pour une machine (parc)."""
+    q = db.session.query(
+        RawData.date_heure,
+        RawData.personne,
+        RawData.produit,
+        RawData.quantite,
+        RawData.compteur,
+    ).filter(RawData.parc == parc)
+    q = _date_filter(q, RawData, date_from, date_to)
+    releves = q.order_by(RawData.date_heure).all()
+    
+    q2 = db.session.query(
+        RawData.parc,
+        db.func.sum(RawData.quantite).label('total'),
+        db.func.count(RawData.id).label('nb'),
+    ).filter(RawData.parc == parc)
+    q2 = _date_filter(q2, RawData, date_from, date_to)
+    stats = q2.group_by(RawData.parc).first()
+    
+    q3 = db.session.query(
+        RawData.personne,
+        db.func.sum(RawData.quantite).label('total'),
+    ).filter(RawData.parc == parc).filter(RawData.personne != '')
+    q3 = _date_filter(q3, RawData, date_from, date_to)
+    by_personne = q3.group_by(RawData.personne).order_by(db.desc('total')).all()
+    
+    q4 = Anomalie.query.filter(Anomalie.machine == parc)
+    q4 = _date_filter(q4, Anomalie, date_from, date_to)
+    anomalies = q4.order_by(Anomalie.date.desc()).all()
+    
+    q5 = db.session.query(
+        func.date(RawData.date_heure).label('dt'),
+        db.func.sum(RawData.quantite).label('total'),
+    ).filter(RawData.parc == parc)
+    q5 = _date_filter(q5, RawData, date_from, date_to)
+    by_date = q5.group_by(func.date(RawData.date_heure)).order_by('dt').all()
+    
+    return {
+        'parc': parc,
+        'stats': stats,
+        'releves': releves,
+        'by_personne': by_personne,
+        'anomalies': anomalies,
+        'by_date': by_date,
+    }
+
+
+def get_person_detail(personne, date_from=None, date_to=None):
+    """Données détaillées pour une personne."""
+    q = db.session.query(
+        RawData.date_heure,
+        RawData.parc,
+        RawData.produit,
+        RawData.quantite,
+        RawData.compteur,
+    ).filter(RawData.personne == personne)
+    q = _date_filter(q, RawData, date_from, date_to)
+    releves = q.order_by(RawData.date_heure).all()
+    
+    q2 = db.session.query(
+        RawData.personne,
+        db.func.sum(RawData.quantite).label('total'),
+        db.func.count(RawData.id).label('nb'),
+    ).filter(RawData.personne == personne)
+    q2 = _date_filter(q2, RawData, date_from, date_to)
+    stats = q2.group_by(RawData.personne).first()
+    
+    q3 = db.session.query(
+        RawData.parc,
+        db.func.sum(RawData.quantite).label('total'),
+    ).filter(RawData.personne == personne)
+    q3 = _date_filter(q3, RawData, date_from, date_to)
+    by_machine = q3.group_by(RawData.parc).order_by(db.desc('total')).all()
+    
+    q4 = Anomalie.query.filter(Anomalie.personne == personne)
+    q4 = _date_filter(q4, Anomalie, date_from, date_to)
+    anomalies = q4.order_by(Anomalie.date.desc()).all()
+    
+    q5 = db.session.query(
+        func.date(RawData.date_heure).label('dt'),
+        db.func.sum(RawData.quantite).label('total'),
+    ).filter(RawData.personne == personne)
+    q5 = _date_filter(q5, RawData, date_from, date_to)
+    by_date = q5.group_by(func.date(RawData.date_heure)).order_by('dt').all()
+    
+    return {
+        'personne': personne,
+        'stats': stats,
+        'releves': releves,
+        'by_machine': by_machine,
+        'anomalies': anomalies,
+        'by_date': by_date,
+    }
 
 
 def get_date_range():

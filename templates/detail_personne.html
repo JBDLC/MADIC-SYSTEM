@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> {{ detail.personne }}</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">← Retour au Dashboard</a>
+    </div>
+</div>
+
+<form method="get" action="{{ url_for('personne_detail', nom=detail.personne) }}" class="card" style="margin-bottom: 20px;">
+    <h2>Période</h2>
+    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+        <label>Du <input type="date" name="date_from" value="{{ request.args.get('date_from', date_min_str) }}"></label>
+        <label>Au <input type="date" name="date_to" value="{{ request.args.get('date_to', date_max_str) }}"></label>
+        <button type="submit" class="btn btn-primary">Filtrer</button>
+        <a href="{{ url_for('personne_detail', nom=detail.personne) }}" class="btn btn-secondary">Toute la période</a>
+    </div>
+</form>
+
+<div class="grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="label">Carburant total</div>
+        <div class="value">{{ "%.2f"|format(detail.stats.total if detail.stats else 0) }} L</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Nombre de relevés</div>
+        <div class="value">{{ detail.stats.nb if detail.stats else 0 }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Anomalies</div>
+        <div class="value" style="color: {% if detail.anomalies %}var(--danger){% else %}var(--success){% endif %};">{{ detail.anomalies|length }}</div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+    <h2>Consommation dans le temps</h2>
+    <div style="height: 280px; position: relative;">
+        <canvas id="chartConsommation"></canvas>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    <div class="card">
+        <h2>Consommation par machine</h2>
+        <div style="height: 220px; position: relative;">
+            <canvas id="chartParMachine"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <h2>Types d'anomalies</h2>
+        <div style="height: 220px; position: relative;">
+            <canvas id="chartAnomalies"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+    <h2>Anomalies détectées</h2>
+    {% if detail.anomalies %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Machine</th>
+                <th>Type</th>
+                <th>Détails</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in detail.anomalies[:20] %}
+            <tr>
+                <td>{{ a.date.strftime('%d/%m/%Y %H:%M') if a.date else '-' }}</td>
+                <td><a href="{{ url_for('machine_detail', parc=a.machine) }}">{{ a.machine }}</a></td>
+                <td>{{ a.type_anomalie }}</td>
+                <td>{{ (a.details or '-')[:60] }}{% if a.details and a.details|length > 60 %}...{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if detail.anomalies|length > 20 %}
+    <p style="margin-top: 12px; color: var(--text-muted); font-size: 0.9rem;">… et {{ detail.anomalies|length - 20 }} autres anomalies.</p>
+    {% endif %}
+    {% else %}
+    <p style="color: var(--text-muted); padding: 20px;">Aucune anomalie détectée pour cette personne.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Historique des relevés</h2>
+    {% if detail.releves %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Machine</th>
+                <th>Produit</th>
+                <th>Quantité</th>
+                <th>Compteur</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in detail.releves[-50:]|reverse %}
+            <tr>
+                <td>{{ r.date_heure.strftime('%d/%m/%Y %H:%M') if r.date_heure else '-' }}</td>
+                <td><a href="{{ url_for('machine_detail', parc=r.parc) }}">{{ r.parc }}</a></td>
+                <td>{{ r.produit or '-' }}</td>
+                <td>{{ "%.2f"|format(r.quantite) if r.quantite is not none else '-' }}</td>
+                <td>{{ r.compteur if r.compteur is not none else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if detail.releves|length > 50 %}
+    <p style="margin-top: 12px; color: var(--text-muted); font-size: 0.9rem;">Affichage des 50 derniers relevés sur {{ detail.releves|length }}.</p>
+    {% endif %}
+    {% else %}
+    <p style="color: var(--text-muted); padding: 20px;">Aucun relevé pour cette personne.</p>
+    {% endif %}
+</div>
+
+<script>
+(function() {
+    var byDate = {{ detail.by_date_chart|tojson }};
+    var labels = byDate.map(function(d) { return d[0] || ''; });
+    var data = byDate.map(function(d) { return d[1] || 0; });
+
+    if (labels.length && labels.some(function(l){return l;})) {
+        new Chart(document.getElementById('chartConsommation'), {
+            type: 'line',
+            data: {
+                labels: labels.map(function(l) {
+                    if (l && l.length >= 10) return l.substring(0,7);
+                    return l;
+                }),
+                datasets: [{ label: 'Quantité (L)', data: data, borderColor: '#3498db', backgroundColor: 'rgba(52,152,219,0.2)', fill: true, tension: 0.2 }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+    }
+
+    var byMach = {{ detail.by_machine_chart|tojson }};
+    if (byMach.length) {
+        new Chart(document.getElementById('chartParMachine'), {
+            type: 'bar',
+            data: {
+                labels: byMach.map(function(m) { return (m[0] || '?').substring(0, 15); }),
+                datasets: [{ label: 'Quantité (L)', data: byMach.map(function(m) { return m[1] || 0; }), backgroundColor: '#2980b9', borderColor: '#1c5a85' }]
+            },
+            options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, scales: { x: { beginAtZero: true } } }
+        });
+    }
+
+    var anomTypes = {};
+    {{ detail.anomalies_json|tojson }}.forEach(function(a) {
+        var t = a.type_anomalie || 'Autre';
+        anomTypes[t] = (anomTypes[t] || 0) + 1;
+    });
+    var anomLabels = Object.keys(anomTypes);
+    var anomData = anomLabels.map(function(k) { return anomTypes[k]; });
+    if (anomLabels.length) {
+        new Chart(document.getElementById('chartAnomalies'), {
+            type: 'doughnut',
+            data: {
+                labels: anomLabels,
+                datasets: [{ data: anomData, backgroundColor: ['#e74c3c','#f39c12','#9b59b6','#3498db','#1abc9c'] }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+    }
+})();
+</script>
+{% endblock %}

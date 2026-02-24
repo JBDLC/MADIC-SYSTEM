@@ -12,7 +12,7 @@ from config import UPLOAD_FOLDER
 from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod
 from excel_importer import import_excel
 from processor import process_all_machines
-from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel
+from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_machine_detail, get_person_detail
 from indicators import get_indicator_data, get_available_values
 
 app = Flask(__name__)
@@ -56,8 +56,20 @@ def reset_data():
 @app.route('/')
 def index():
     """Page d'accueil / Dashboard."""
-    stats = get_stats()
-    return render_template('index.html', stats=stats)
+    machine_filter = request.args.getlist('machines')
+    person_filter = request.args.getlist('personnes')
+    stats = get_stats(machine_filter=machine_filter if machine_filter else None,
+                     person_filter=person_filter if person_filter else None)
+    all_machines = get_all_machines_for_filter()
+    all_personnes = get_all_personnes_for_filter()
+    has_filter = bool(request.args.get('machines') is not None or request.args.get('personnes') is not None)
+    return render_template('index.html',
+        stats=stats,
+        all_machines=all_machines,
+        all_personnes=all_personnes,
+        selected_machines=set(machine_filter),
+        selected_personnes=set(person_filter),
+        has_filter=has_filter)
 
 
 def _do_import(filepath, filename):
@@ -253,6 +265,70 @@ def api_indicateurs_values(dimension):
         pass
     values = get_available_values(dimension, date_from, date_to)
     return jsonify(values)
+
+
+@app.route('/detail/machine')
+def machine_detail():
+    """Page détail d'une machine avec graphiques et données."""
+    parc = request.args.get('parc')
+    if not parc:
+        flash('Machine non spécifiée.', 'error')
+        return redirect(url_for('index'))
+    date_from = date_to = None
+    try:
+        df = request.args.get('date_from', '')
+        dt = request.args.get('date_to', '')
+        if df:
+            date_from = datetime.strptime(df, '%Y-%m-%d').date()
+        if dt:
+            date_to = datetime.strptime(dt, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+    detail = get_machine_detail(parc, date_from, date_to)
+    detail['by_date_chart'] = [[str(d.dt) if hasattr(d, 'dt') else d[0], float(d.total) if hasattr(d, 'total') else d[1]] for d in (detail.get('by_date') or [])]
+    detail['by_personne_chart'] = [[str(p[0]) or '-', float(p[1]) if len(p) > 1 else 0] for p in (detail.get('by_personne') or [])]
+    detail['anomalies_json'] = [{'type_anomalie': a.type_anomalie} for a in (detail.get('anomalies') or [])]
+    date_min, date_max = get_date_range()
+    def _to_iso(d):
+        if d is None:
+            return ''
+        return d.isoformat() if hasattr(d, 'isoformat') else str(d)[:10]
+    return render_template('detail_machine.html',
+        detail=detail,
+        date_min_str=_to_iso(date_min),
+        date_max_str=_to_iso(date_max))
+
+
+@app.route('/detail/personne')
+def personne_detail():
+    """Page détail d'une personne avec graphiques et données."""
+    nom = request.args.get('nom')
+    if not nom:
+        flash('Personne non spécifiée.', 'error')
+        return redirect(url_for('index'))
+    date_from = date_to = None
+    try:
+        df = request.args.get('date_from', '')
+        dt = request.args.get('date_to', '')
+        if df:
+            date_from = datetime.strptime(df, '%Y-%m-%d').date()
+        if dt:
+            date_to = datetime.strptime(dt, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+    detail = get_person_detail(nom, date_from, date_to)
+    detail['by_date_chart'] = [[str(d.dt) if hasattr(d, 'dt') else d[0], float(d.total) if hasattr(d, 'total') else d[1]] for d in (detail.get('by_date') or [])]
+    detail['by_machine_chart'] = [[str(m[0]) or '-', float(m[1]) if len(m) > 1 else 0] for m in (detail.get('by_machine') or [])]
+    detail['anomalies_json'] = [{'type_anomalie': a.type_anomalie} for a in (detail.get('anomalies') or [])]
+    date_min, date_max = get_date_range()
+    def _to_iso(d):
+        if d is None:
+            return ''
+        return d.isoformat() if hasattr(d, 'isoformat') else str(d)[:10]
+    return render_template('detail_personne.html',
+        detail=detail,
+        date_min_str=_to_iso(date_min),
+        date_max_str=_to_iso(date_max))
 
 
 @app.route('/rapports')

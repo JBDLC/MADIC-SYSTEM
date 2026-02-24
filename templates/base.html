@@ -64,6 +64,7 @@
         }
         nav .logo { height: 28px; width: auto; display: block; }
         nav .brand h1 { margin: 0; font-size: 1.15rem; font-weight: 500; color: var(--header-text); }
+        nav .brand-tagline { font-size: 0.7rem; font-style: italic; color: var(--header-muted); margin: 0; line-height: 1.2; }
         nav .nav-links {
             display: flex;
             align-items: center;
@@ -207,7 +208,10 @@
                 <div class="logo-wrap">
                     <img src="{{ url_for('static', filename='images/logo.png') }}" alt="Logo" class="logo">
                 </div>
-                <h1>MADIC SYSTEM</h1>
+                <div>
+                    <h1>MADIC SYSTEM</h1>
+                    <p class="brand-tagline">Feel the Madic in the air</p>
+                </div>
             </a>
             <div class="nav-links">
                 <a href="{{ url_for('index') }}" {% if request.endpoint and request.endpoint == 'index' %}class="active"{% endif %}>Dashboard</a>

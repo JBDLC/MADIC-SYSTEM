@@ -50,18 +50,49 @@
 <div class="card">
     <div class="page-header" style="margin-bottom: 16px;">
         <h2 style="margin: 0;">| Les machines suivies</h2>
-        <a href="{{ url_for('rapports') }}" class="btn btn-add">+ Export</a>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <button type="button" class="btn btn-secondary" id="btn-filter-machines" onclick="document.getElementById('filter-machines-box').classList.toggle('hidden')">Filtrer les machines</button>
+            <a href="{{ url_for('rapports') }}" class="btn btn-add">+ Export</a>
+        </div>
+    </div>
+    <div id="filter-machines-box" class="dashboard-filter-box hidden">
+        <form method="get" action="{{ url_for('index') }}">
+            <div class="filter-section">
+                <strong>Machines à afficher :</strong>
+                <div class="filter-checkboxes">
+                    {% for parc in all_machines %}
+                    <label class="filter-checkbox"><input type="checkbox" name="machines" value="{{ parc }}" {% if not has_filter or parc in selected_machines %}checked{% endif %}> {{ parc }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="filter-section">
+                <strong>Personnes à afficher :</strong>
+                <div class="filter-checkboxes">
+                    {% for p in all_personnes %}
+                    <label class="filter-checkbox"><input type="checkbox" name="personnes" value="{{ p }}" {% if not has_filter or p in selected_personnes %}checked{% endif %}> {{ p }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div style="margin-top: 12px;">
+                <button type="submit" class="btn btn-primary">Appliquer le filtre</button>
+                <button type="button" class="btn btn-secondary" onclick="document.querySelectorAll('#filter-machines-box input[type=checkbox]').forEach(cb=>cb.checked=true)">Tout sélectionner</button>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">Réinitialiser</a>
+            </div>
+        </form>
     </div>
     <div class="item-list">
         {% if stats.top_machines %}
             {% for m in stats.top_machines %}
+            <a href="{{ url_for('machine_detail', parc=m.parc) }}" class="item-card-link">
             <div class="item-card {% if loop.index % 3 == 1 %}green{% elif loop.index % 3 == 2 %}blue{% else %}grey{% endif %}">
                 <div class="item-card-left">
                     <span>●</span>
                     <span>{{ m.parc }}</span>
                     <span class="item-card-badge">{{ "%.1f"|format(m.total) }} L</span>
                 </div>
+                <span class="item-card-arrow">→</span>
             </div>
+            </a>
             {% endfor %}
         {% else %}
             <p style="color: var(--text-muted); padding: 20px;">Aucune donnée. Importez un fichier Excel.</p>
@@ -70,21 +101,52 @@
 </div>
 
 <div class="card">
-    <h2>| Les personnes suivies</h2>
+    <div class="page-header" style="margin-bottom: 16px;">
+        <h2 style="margin: 0;">| Les personnes suivies</h2>
+        <button type="button" class="btn btn-secondary" id="btn-filter-personnes" onclick="document.getElementById('filter-personnes-box').classList.toggle('hidden')">Filtrer les personnes</button>
+    </div>
+    <div id="filter-personnes-box" class="dashboard-filter-box hidden">
+        <p style="font-size: 0.9rem; color: var(--text-muted);">Utilisez le filtre « Machines » ci-dessus pour filtrer aussi les personnes.</p>
+    </div>
     <div class="item-list">
         {% if stats.top_personnes %}
             {% for p in stats.top_personnes %}
+            <a href="{{ url_for('personne_detail', nom=p.personne) }}" class="item-card-link">
             <div class="item-card {% if loop.index % 3 == 1 %}blue{% elif loop.index % 3 == 2 %}green{% else %}grey{% endif %}">
                 <div class="item-card-left">
                     <span>●</span>
                     <span>{{ p.personne }}</span>
                     <span class="item-card-badge">{{ "%.1f"|format(p.total) }} L</span>
                 </div>
+                <span class="item-card-arrow">→</span>
             </div>
+            </a>
             {% endfor %}
         {% else %}
             <p style="color: var(--text-muted); padding: 20px;">Aucune donnée.</p>
         {% endif %}
     </div>
 </div>
+
+<style>
+.dashboard-filter-box {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    border: 1px solid #e9ecef;
+}
+.dashboard-filter-box.hidden { display: none; }
+.filter-section { margin-bottom: 16px; }
+.filter-checkboxes { display: flex; flex-wrap: wrap; gap: 8px 16px; max-height: 200px; overflow-y: auto; }
+.filter-checkbox { font-size: 0.9rem; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.item-card-link { text-decoration: none; color: inherit; display: block; }
+.item-card-link:hover .item-card { opacity: 0.9; }
+.item-card { position: relative; }
+.item-card-arrow {
+    position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+    opacity: 0.6; font-size: 1.2rem;
+}
+</style>
+
 {% endblock %}
