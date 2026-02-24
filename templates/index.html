@@ -56,27 +56,30 @@
         </div>
     </div>
     <div id="filter-machines-box" class="dashboard-filter-box hidden">
-        <form method="get" action="{{ url_for('index') }}">
+        <form method="post" action="{{ url_for('index') }}">
             <div class="filter-section">
                 <strong>Machines à afficher :</strong>
-                <div class="filter-checkboxes">
+                <input type="text" id="search-machines" class="filter-search" placeholder="Rechercher une machine..." autocomplete="off">
+                <div class="filter-checkboxes" id="machines-list">
                     {% for parc in all_machines %}
-                    <label class="filter-checkbox"><input type="checkbox" name="machines" value="{{ parc }}" {% if not has_filter or parc in selected_machines %}checked{% endif %}> {{ parc }}</label>
+                    <label class="filter-checkbox" data-search="{{ parc|lower }}"><input type="checkbox" name="machines" value="{{ parc }}" {% if not has_filter or parc in selected_machines %}checked{% endif %}> {{ parc }}</label>
                     {% endfor %}
                 </div>
             </div>
             <div class="filter-section">
                 <strong>Personnes à afficher :</strong>
-                <div class="filter-checkboxes">
+                <input type="text" id="search-personnes" class="filter-search" placeholder="Rechercher une personne..." autocomplete="off">
+                <div class="filter-checkboxes" id="personnes-list">
                     {% for p in all_personnes %}
-                    <label class="filter-checkbox"><input type="checkbox" name="personnes" value="{{ p }}" {% if not has_filter or p in selected_personnes %}checked{% endif %}> {{ p }}</label>
+                    <label class="filter-checkbox" data-search="{{ p|lower }}"><input type="checkbox" name="personnes" value="{{ p }}" {% if not has_filter or p in selected_personnes %}checked{% endif %}> {{ p }}</label>
                     {% endfor %}
                 </div>
             </div>
             <div style="margin-top: 12px;">
                 <button type="submit" class="btn btn-primary">Appliquer le filtre</button>
                 <button type="button" class="btn btn-secondary" onclick="document.querySelectorAll('#filter-machines-box input[type=checkbox]').forEach(cb=>cb.checked=true)">Tout sélectionner</button>
-                <a href="{{ url_for('index') }}" class="btn btn-secondary">Réinitialiser</a>
+                <button type="button" class="btn btn-secondary" onclick="document.querySelectorAll('#filter-machines-box input[type=checkbox]').forEach(cb=>cb.checked=false)">Tout désélectionner</button>
+                <a href="{{ url_for('index', clear_filter=1) }}" class="btn btn-secondary">Tout afficher</a>
             </div>
         </form>
     </div>
@@ -140,6 +143,16 @@
 .filter-section { margin-bottom: 16px; }
 .filter-checkboxes { display: flex; flex-wrap: wrap; gap: 8px 16px; max-height: 200px; overflow-y: auto; }
 .filter-checkbox { font-size: 0.9rem; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.filter-search {
+    width: 100%;
+    max-width: 280px;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+.filter-checkbox.filter-hidden { display: none !important; }
 .item-card-link { text-decoration: none; color: inherit; display: block; }
 .item-card-link:hover .item-card { opacity: 0.9; }
 .item-card { position: relative; }
@@ -149,4 +162,26 @@
 }
 </style>
 
+<script>
+(function() {
+    var searchMach = document.getElementById('search-machines');
+    var searchPers = document.getElementById('search-personnes');
+    if (searchMach) {
+        searchMach.addEventListener('input', function() {
+            var q = this.value.trim().toLowerCase();
+            document.querySelectorAll('#machines-list .filter-checkbox').forEach(function(lab) {
+                lab.classList.toggle('filter-hidden', q && !(lab.dataset.search || '').includes(q));
+            });
+        });
+    }
+    if (searchPers) {
+        searchPers.addEventListener('input', function() {
+            var q = this.value.trim().toLowerCase();
+            document.querySelectorAll('#personnes-list .filter-checkbox').forEach(function(lab) {
+                lab.classList.toggle('filter-hidden', q && !(lab.dataset.search || '').includes(q));
+            });
+        });
+    }
+})();
+</script>
 {% endblock %}

@@ -5,7 +5,7 @@ Lancer avec : py app.py
 """
 import os
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session
 from werkzeug.utils import secure_filename
 
 from config import UPLOAD_FOLDER
@@ -53,22 +53,34 @@ def reset_data():
     return redirect(url_for('index'))
 
 
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    """Page d'accueil / Dashboard."""
-    machine_filter = request.args.getlist('machines')
-    person_filter = request.args.getlist('personnes')
+    """Page d'accueil / Dashboard. Le filtre reste figé (session) jusqu'à modification par l'utilisateur."""
+    machine_filter = None
+    person_filter = None
+    if request.method == 'POST':
+        machine_filter = request.form.getlist('machines')
+        person_filter = request.form.getlist('personnes')
+        session['dashboard_filter'] = {'machines': machine_filter, 'personnes': person_filter}
+        return redirect(url_for('index'))
+    if request.args.get('clear_filter'):
+        session.pop('dashboard_filter', None)
+        return redirect(url_for('index'))
+    filter_data = session.get('dashboard_filter')
+    if filter_data:
+        machine_filter = filter_data.get('machines') or []
+        person_filter = filter_data.get('personnes') or []
     stats = get_stats(machine_filter=machine_filter if machine_filter else None,
                      person_filter=person_filter if person_filter else None)
     all_machines = get_all_machines_for_filter()
     all_personnes = get_all_personnes_for_filter()
-    has_filter = bool(request.args.get('machines') is not None or request.args.get('personnes') is not None)
+    has_filter = bool(machine_filter or person_filter)
     return render_template('index.html',
         stats=stats,
         all_machines=all_machines,
         all_personnes=all_personnes,
-        selected_machines=set(machine_filter),
-        selected_personnes=set(person_filter),
+        selected_machines=set(machine_filter or []),
+        selected_personnes=set(person_filter or []),
         has_filter=has_filter)
 
 
