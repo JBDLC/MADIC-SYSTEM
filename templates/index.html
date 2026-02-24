@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Dashboard</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('rapports') }}" class="btn btn-add">Générer rapports</a>
+        <form action="{{ url_for('importer_excel') }}" method="post" enctype="multipart/form-data" style="display: inline;">
+            <div class="file-input-wrapper">
+                <button type="button" class="btn btn-primary" id="btn-import">+ Importer un fichier</button>
+                <input type="file" name="file" id="file-input" accept=".xlsx,.xls,.XLS,.XLSX" onchange="if(this.files.length) this.form.submit();">
+            </div>
+        </form>
+    </div>
+</div>
+
+<form action="{{ url_for('importer_excel') }}" method="post" enctype="multipart/form-data" class="card" style="margin-bottom: 20px;">
+    <h2>Import Excel (alternative)</h2>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px;">Si l'upload bloque : collez le chemin complet du fichier</p>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <input type="text" name="filepath" placeholder="C:\Users\...\Downloads\Transactions MADIC.xls" style="flex: 1; min-width: 280px;">
+        <button type="submit" class="btn btn-secondary">Importer par chemin</button>
+    </div>
+</form>
+<script>document.getElementById('btn-import').onclick = function() { document.getElementById('file-input').click(); };</script>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, msg in messages %}
+            <div class="alert alert-{{ category if category in ['success','error','warning'] else 'success' }}">{{ msg }}</div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="label">Total carburant</div>
+        <div class="value">{{ "%.2f"|format(stats.total_carburant) }} L</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Anomalies détectées</div>
+        <div class="value" style="color: {% if stats.nb_anomalies %}var(--danger){% else %}var(--success){% endif %};">{{ stats.nb_anomalies }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="page-header" style="margin-bottom: 16px;">
+        <h2 style="margin: 0;">| Les machines suivies</h2>
+        <a href="{{ url_for('rapports') }}" class="btn btn-add">+ Export</a>
+    </div>
+    <div class="item-list">
+        {% if stats.top_machines %}
+            {% for m in stats.top_machines %}
+            <div class="item-card {% if loop.index % 3 == 1 %}green{% elif loop.index % 3 == 2 %}blue{% else %}grey{% endif %}">
+                <div class="item-card-left">
+                    <span>●</span>
+                    <span>{{ m.parc }}</span>
+                    <span class="item-card-badge">{{ "%.1f"|format(m.total) }} L</span>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p style="color: var(--text-muted); padding: 20px;">Aucune donnée. Importez un fichier Excel.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h2>| Les personnes suivies</h2>
+    <div class="item-list">
+        {% if stats.top_personnes %}
+            {% for p in stats.top_personnes %}
+            <div class="item-card {% if loop.index % 3 == 1 %}blue{% elif loop.index % 3 == 2 %}green{% else %}grey{% endif %}">
+                <div class="item-card-left">
+                    <span>●</span>
+                    <span>{{ p.personne }}</span>
+                    <span class="item-card-badge">{{ "%.1f"|format(p.total) }} L</span>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p style="color: var(--text-muted); padding: 20px;">Aucune donnée.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

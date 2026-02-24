@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Rapports</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('download_report', format='pdf', date_from=date_from or '', date_to=date_to or '') }}" id="link-pdf" class="btn btn-primary">Télécharger PDF</a>
+        <a href="{{ url_for('download_report', format='excel', date_from=date_from or '', date_to=date_to or '') }}" id="link-excel" class="btn btn-secondary">Télécharger Excel</a>
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Retour</a>
+    </div>
+</div>
+
+<form method="get" action="{{ url_for('rapports') }}" id="filter-form" class="card" style="margin-bottom: 20px;">
+    <h2>Filtrer par période</h2>
+    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+        <label style="display: flex; align-items: center; gap: 0.5rem;">
+            Du <input type="date" name="date_from" id="date_from" value="{{ date_from or date_min_str }}" min="{{ date_min_str }}" max="{{ date_max_str }}">
+        </label>
+        <label style="display: flex; align-items: center; gap: 0.5rem;">
+            Au <input type="date" name="date_to" id="date_to" value="{{ date_to or date_max_str }}" min="{{ date_min_str }}" max="{{ date_max_str }}">
+        </label>
+        <button type="submit" class="btn btn-primary">Appliquer le filtre</button>
+        <a href="{{ url_for('rapports') }}" class="btn btn-secondary">Toute la période</a>
+    </div>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0.75rem 0 0 0;">
+        <strong>Données disponibles :</strong> {{ date_range_display }}
+    </p>
+    {% if date_from or date_to %}
+    <p style="color: var(--accent); font-size: 0.9rem; margin: 0.5rem 0 0 0;">
+        ✓ Filtre actif : du {{ date_from or 'début' }} au {{ date_to or 'fin' }} — Tableaux et exports concernent uniquement cette période.
+    </p>
+    {% endif %}
+</form>
+<script>
+(function() {
+    var basePdf = "{{ url_for('download_report', format='pdf') }}";
+    var baseExcel = "{{ url_for('download_report', format='excel') }}";
+    function updateLinks() {
+        var df = document.getElementById('date_from').value;
+        var dt = document.getElementById('date_to').value;
+        var q = [];
+        if (df) q.push('date_from=' + encodeURIComponent(df));
+        if (dt) q.push('date_to=' + encodeURIComponent(dt));
+        var suffix = q.length ? '?' + q.join('&') : '';
+        document.getElementById('link-pdf').href = basePdf + suffix;
+        document.getElementById('link-excel').href = baseExcel + suffix;
+    }
+    document.getElementById('date_from').addEventListener('change', updateLinks);
+    document.getElementById('date_to').addEventListener('change', updateLinks);
+})();
+</script>
+
+<div class="card">
+    <h2>| Consommations par machine</h2>
+    {% if machines %}
+    <table>
+        <thead>
+            <tr>
+                <th>Machine</th>
+                <th>Quantité totale (L)</th>
+                <th>Nombre de relevés</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in machines %}
+            <tr>
+                <td>{{ m.parc }}</td>
+                <td>{{ "%.2f"|format(m.quantite_totale) }}</td>
+                <td>{{ m.nb_releves }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-muted);">Aucune donnée. Importez un fichier Excel puis traitez les données.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>| Consommations par personne</h2>
+    {% if personnes %}
+    <table>
+        <thead>
+            <tr>
+                <th>Personne</th>
+                <th>Quantité totale (L)</th>
+                <th>Nombre de relevés</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in personnes %}
+            <tr>
+                <td>{{ p.personne or '-' }}</td>
+                <td>{{ "%.2f"|format(p.quantite_totale) }}</td>
+                <td>{{ p.nb_releves }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-muted);">Aucune donnée.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>| Anomalies détaillées</h2>
+    {% if anomalies %}
+    <table>
+        <thead>
+            <tr>
+                <th>Machine</th>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Personne</th>
+                <th>Compteur avant</th>
+                <th>Compteur après</th>
+                <th>Détails</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in anomalies %}
+            <tr>
+                <td>{{ a.machine }}</td>
+                <td>{{ a.type_anomalie }}</td>
+                <td>{{ a.date.strftime('%d/%m/%Y %H:%M') if a.date else '-' }}</td>
+                <td>{{ a.personne or '-' }}</td>
+                <td>{{ a.compteur_before or '-' }}</td>
+                <td>{{ a.compteur_after or '-' }}</td>
+                <td>{{ (a.details or '')[:50] }}{% if (a.details or '')|length > 50 %}...{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-muted);">Aucune anomalie détectée.</p>
+    {% endif %}
+</div>
+{% endblock %}
