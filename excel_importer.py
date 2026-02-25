@@ -286,11 +286,9 @@ def load_excel(filepath):
 
 
 def get_existing_dates():
-    """Retourne l'ensemble des (date_heure, parc, quantite, compteur) déjà en base."""
-    rows = RawData.query.with_entities(
-        RawData.date_heure, RawData.parc, RawData.quantite, RawData.compteur
-    ).all()
-    return {(r[0], r[1], r[2], r[3]) for r in rows}
+    """Retourne l'ensemble des (date_heure, parc) déjà en base. Un doublon = même date/heure pour la même machine."""
+    rows = RawData.query.with_entities(RawData.date_heure, RawData.parc).all()
+    return {(r[0], r[1]) for r in rows}
 
 
 def import_excel(filepath, filename=''):
@@ -308,7 +306,7 @@ def import_excel(filepath, filename=''):
     to_insert = []
     
     for _, row in df.iterrows():
-        key = (row['date_heure'], row['parc'], row['quantite'], row['compteur'])
+        key = (row['date_heure'], row['parc'])
         if key in existing:
             continue
         to_insert.append(RawData(
@@ -322,7 +320,7 @@ def import_excel(filepath, filename=''):
             compteur=row['compteur'],
             unite=row.get('unite', ''),
         ))
-        existing.add(key)
+        existing.add(key)  # évite doublons dans le même fichier
     
     nb_skipped = len(df) - len(to_insert)
     
