@@ -4,6 +4,8 @@ MADIC - Application Flask d'analyse des données carburant.
 Lancer avec : py app.py
 """
 import os
+import io
+from urllib.parse import urlencode
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session
 from werkzeug.utils import secure_filename
@@ -53,11 +55,27 @@ def reset_data():
     return redirect(url_for('index'))
 
 
+def _redirect_index_with_filters():
+    """Redirige vers le dashboard en préservant les filtres (session ou URL)."""
+    filter_data = session.get('dashboard_filter')
+    if filter_data and (filter_data.get('machines') or filter_data.get('personnes')):
+        params = [('machines', m) for m in filter_data.get('machines', [])]
+        params += [('personnes', p) for p in filter_data.get('personnes', [])]
+        return redirect(url_for('index') + '?' + urlencode(params))
+    return redirect(url_for('index'))
+
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
     """Page d'accueil / Dashboard. Le filtre reste figé (session) jusqu'à modification par l'utilisateur."""
     machine_filter = None
     person_filter = None
+    # Restauration des filtres depuis l'URL (après import, la session peut être perdue)
+    if request.args.getlist('machines') or request.args.getlist('personnes'):
+        machine_filter = request.args.getlist('machines')
+        person_filter = request.args.getlist('personnes')
+        session['dashboard_filter'] = {'machines': machine_filter, 'personnes': person_filter}
+        return redirect(url_for('index'))
     if request.method == 'POST':
         machine_filter = request.form.getlist('machines')
         person_filter = request.form.getlist('personnes')
@@ -117,27 +135,27 @@ def importer_excel():
                     flash(f'Toutes les lignes ({nb_skipped}) étaient déjà présentes.', 'warning')
                 else:
                     flash('Aucune donnée valide trouvée.', 'warning')
-                return redirect(url_for('index'))
+                return _redirect_index_with_filters()
             except Exception as e:
                 flash(f'Erreur : {str(e)}', 'error')
-                return redirect(url_for('index'))
+                return _redirect_index_with_filters()
         else:
             flash('Format non autorisé. Utilisez .xlsx ou .xls', 'error')
-            return redirect(url_for('index'))
+            return _redirect_index_with_filters()
     
     # Option 2: Upload classique
     if 'file' not in request.files:
         flash('Aucun fichier. Glissez-déposez ou collez le chemin complet du fichier.', 'error')
-        return redirect(url_for('index'))
+        return _redirect_index_with_filters()
     
     file = request.files['file']
     if file.filename == '':
         flash('Aucun fichier sélectionné.', 'error')
-        return redirect(url_for('index'))
+        return _redirect_index_with_filters()
     
     if not allowed_file(file.filename):
         flash('Format non autorisé. Utilisez .xlsx ou .xls', 'error')
-        return redirect(url_for('index'))
+        return _redirect_index_with_filters()
     
     filename = safe_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -145,7 +163,7 @@ def importer_excel():
         file.save(filepath)
     except Exception as e:
         flash(f'Impossible de sauvegarder le fichier (antivirus?). Collez le chemin dans le champ ci-dessous : {e}', 'error')
-        return redirect(url_for('index'))
+        return _redirect_index_with_filters()
     
     try:
         nb_imported, nb_skipped, date_min, date_max = _do_import(filepath, filename)
@@ -168,7 +186,30 @@ def importer_excel():
             except Exception:
                 pass
     
-    return redirect(url_for('index'))
+    return _redirect_index_with_filters()
+
+
+@app.route('/download-template')
+def download_template():
+    """Télécharge un modèle Excel vide avec les colonnes attendues et un exemple."""
+    import pandas as pd
+    cols = ['Date', 'Heure', 'N° Parc', 'Service véhicule', 'Personne',
+            'Service personne', 'Produit', 'Quantité', 'Compteur', 'Unité']
+    # Lignes d'exemple (format attendu : jj/mm/aaaa, HH:MM:SS)
+    rows = [
+        {'Date': '01/02/2025', 'Heure': '08:30:00', 'N° Parc': 'H56-001', 'Service véhicule': 'Fleet',
+         'Personne': 'Dupont', 'Service personne': 'Opérations', 'Produit': 'Diesel',
+         'Quantité': 45.5, 'Compteur': 125000, 'Unité': 'L'},
+        {'Date': '02/02/2025', 'Heure': '14:15:00', 'N° Parc': 'H56-002', 'Service véhicule': 'Fleet',
+         'Personne': 'Martin', 'Service personne': 'Opérations', 'Produit': 'Diesel',
+         'Quantité': 52.3, 'Compteur': 87500, 'Unité': 'L'},
+    ]
+    df = pd.DataFrame(rows, columns=cols)
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, sheet_name='Transactions')
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name='modele_madic.xlsx',
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 @app.route('/gestion-imports')

@@ -16,11 +16,12 @@
 <div class="card" style="margin-bottom: 20px;">
     <h2>Import Excel (alternative)</h2>
     <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px;">Si l'upload bloque : collez le chemin complet du fichier. Format des dates : jj/mm/aaaa</p>
-    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px;">
         <form action="{{ url_for('importer_excel') }}" method="post" enctype="multipart/form-data" style="display: flex; flex: 1; min-width: 280px; gap: 8px; flex-wrap: wrap;">
             <input type="text" name="filepath" placeholder="C:\Users\...\Downloads\Transactions MADIC.xls" style="flex: 1; min-width: 200px;">
             <button type="submit" class="btn btn-secondary">Importer par chemin</button>
         </form>
+        <a href="{{ url_for('download_template') }}" class="btn btn-secondary">Télécharger le modèle Excel</a>
         <form action="{{ url_for('reset_data') }}" method="post" style="display: inline;" onsubmit="return confirm('Supprimer toutes les données ? Cela effacera tout : imports, lignes brutes, données traitées et anomalies. Réimportez ensuite vos fichiers.');">
             <button type="submit" class="btn btn-secondary" style="border-color: var(--danger); color: var(--danger);">Réinitialiser les données</button>
         </form>
