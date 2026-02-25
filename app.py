@@ -193,6 +193,10 @@ def supprimer_import(import_id):
         db.session.commit()
         return redirect(url_for('gestion_imports'))
     try:
+        # Supprimer d'abord les données dérivées qui référencent raw_data (contrainte FK PostgreSQL)
+        raw_ids = [r.id for r in RawData.query.filter_by(history_period_id=import_id).with_entities(RawData.id).all()]
+        if raw_ids:
+            ProcessedData.query.filter(ProcessedData.raw_data_id.in_(raw_ids)).delete(synchronize_session=False)
         RawData.query.filter_by(history_period_id=import_id).delete()
         db.session.delete(hp)
         db.session.commit()
