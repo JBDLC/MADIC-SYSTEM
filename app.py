@@ -40,6 +40,12 @@ def safe_filename(filename):
     return s
 
 
+@app.route('/health')
+def health():
+    """Health check léger pour Render (pas de requête DB)."""
+    return '', 200
+
+
 @app.route('/reset-data', methods=['POST'])
 def reset_data():
     """Vide toutes les données pour permettre une réimportation propre (corrige les dates mal parsées)."""
