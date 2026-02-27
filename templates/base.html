@@ -198,7 +198,40 @@
             background: white;
             color: var(--text-dark);
         }
+        .nav-user-menu {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 100%;
+            background: var(--header-bg);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            padding: 8px 0;
+            min-width: 180px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 100;
+        }
+        .nav-user-menu.visible { display: block; }
+        .nav-user-menu a {
+            display: block;
+            padding: 10px 16px;
+            color: var(--header-text);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .nav-user-menu a:hover { background: rgba(255,255,255,0.1); }
     </style>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var btn = document.getElementById('user-menu-btn');
+        var menu = document.getElementById('user-menu');
+        if (btn && menu) {
+            btn.onclick = function(e) { e.stopPropagation(); menu.classList.toggle('visible'); };
+            menu.onclick = function(e) { e.stopPropagation(); };
+            document.addEventListener('click', function() { menu.classList.remove('visible'); });
+        }
+    });
+    </script>
     {% block head %}{% endblock %}
 </head>
 <body>
@@ -217,9 +250,25 @@
                 <a href="{{ url_for('index') }}" {% if request.endpoint and request.endpoint == 'index' %}class="active"{% endif %}>Dashboard</a>
                 <a href="{{ url_for('indicateurs') }}" {% if request.endpoint and request.endpoint == 'indicateurs' %}class="active"{% endif %}>Indicateurs</a>
                 <a href="{{ url_for('rapports') }}" {% if request.endpoint and request.endpoint == 'rapports' %}class="active"{% endif %}>Rapports</a>
+                {% if current_user.is_authenticated and current_user.role != 'visualisation' %}
                 <a href="{{ url_for('gestion_imports') }}" {% if request.endpoint and request.endpoint == 'gestion_imports' %}class="active"{% endif %}>Gestion des imports</a>
+                {% endif %}
             </div>
             <div class="nav-right">
+                {% if current_user.is_authenticated %}
+                <div style="position: relative; display: inline-block;">
+                    <button type="button" class="nav-user-btn" id="user-menu-btn" style="background: none; border: none; color: var(--header-muted); cursor: pointer; padding: 8px 12px; font-size: 0.9rem;">
+                        {{ current_user.username }} ▼
+                    </button>
+                    <div id="user-menu" class="nav-user-menu">
+                        <a href="{{ url_for('change_password') }}">Changer mot de passe</a>
+                        {% if current_user.role == 'admin' %}
+                        <a href="{{ url_for('parametrage') }}">Paramétrage</a>
+                        {% endif %}
+                        <a href="{{ url_for('logout') }}">Déconnexion</a>
+                    </div>
+                </div>
+                {% endif %}
                 <span>FR</span>
             </div>
         </div>

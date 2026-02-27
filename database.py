@@ -3,6 +3,7 @@
 import os
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
 from config import DATABASE_URL, DATABASE_PATH, UPLOAD_FOLDER, REPORTS_FOLDER
 
 # Créer les dossiers si nécessaire
@@ -60,6 +61,16 @@ def init_db(app):
     with app.app_context():
         db.create_all()
         _migrate_add_history_period_id(app)
+        _ensure_admin_user()
+
+
+def _ensure_admin_user():
+    """Crée l'utilisateur admin si inexistant."""
+    from werkzeug.security import generate_password_hash
+    if User.query.filter_by(username='admin').first() is None:
+        u = User(username='admin', password_hash=generate_password_hash('admin123'), role='admin')
+        db.session.add(u)
+        db.session.commit()
 
 
 class RawData(db.Model):
@@ -116,6 +127,38 @@ class Anomalie(db.Model):
     quantite_before = db.Column(db.Float)
     quantite_after = db.Column(db.Float)
     details = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class User(UserMixin, db.Model):
+    """Utilisateurs MADIC avec rôles (admin, utilisateur, visualisation)."""
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default='utilisateur')  # admin, utilisateur, visualisation
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class UserFilter(db.Model):
+    """Filtres dashboard par utilisateur (machines, personnes)."""
+    __tablename__ = 'user_filters'
+    
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), primary_key=True)
+    machines_json = db.Column(db.Text, default='[]')  # JSON array
+    personnes_json = db.Column(db.Text, default='[]')
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SavedIndicator(db.Model):
+    """Configurations indicateurs enregistrées par utilisateur."""
+    __tablename__ = 'saved_indicators'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    name = db.Column(db.String(120), default='Sans nom')
+    config_json = db.Column(db.Text, nullable=False)  # JSON: x_axis, x_date_group, serie_dim, etc.
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 

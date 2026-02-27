@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Paramétrage</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Retour</a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, msg in messages %}
+            <div class="alert alert-{{ category if category in ['success','error'] else 'success' }}">{{ msg }}</div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card" style="margin-bottom: 24px;">
+    <h2>Créer un utilisateur</h2>
+    <form method="post" action="{{ url_for('create_user') }}" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+        <div>
+            <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">Identifiant</label>
+            <input type="text" name="username" required placeholder="identifiant" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+        </div>
+        <div>
+            <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">Mot de passe</label>
+            <input type="password" name="password" required minlength="6" placeholder="••••••••" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+        </div>
+        <div>
+            <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 4px;">Rôle</label>
+            <select name="role" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+                <option value="utilisateur">Utilisateur</option>
+                <option value="admin">Admin</option>
+                <option value="visualisation">Visualisation</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">Créer</button>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Utilisateurs</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Identifiant</th>
+                <th>Rôle</th>
+                <th>Créé le</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in users %}
+            <tr>
+                <td>{{ u.username }}</td>
+                <td>{{ u.role }}</td>
+                <td>{{ u.created_at.strftime('%d/%m/%Y %H:%M') if u.created_at else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

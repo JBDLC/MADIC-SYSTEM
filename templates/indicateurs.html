@@ -263,6 +263,12 @@
         </div>
 
         <button type="button" class="btn-apply" id="btn_apply">Mettre à jour le graphique</button>
+
+        <h3 style="margin-top: 24px;">Mes indicateurs enregistrés</h3>
+        <div class="pivot-row">
+            <button type="button" class="btn btn-secondary" id="btn_save_indicator" style="margin-bottom: 8px;">Enregistrer cet indicateur</button>
+            <div id="saved_list" style="margin-top: 8px; font-size: 0.9rem;"></div>
+        </div>
     </div>
 
     <div class="chart-container">
@@ -508,6 +514,87 @@
     }
 
     document.getElementById('btn_apply').addEventListener('click', loadChart);
+
+    function getCurrentConfig() {
+        var metrics = [];
+        document.querySelectorAll('.metric-chip').forEach(function(chip) {
+            metrics.push({ metric: chip.dataset.metric || 'quantite', agg: chip.dataset.agg || 'sum' });
+        });
+        return {
+            x_axis: document.getElementById('x_axis').value,
+            x_date_group: document.getElementById('x_date_group').value,
+            serie_dim: document.getElementById('serie_dim').value || '',
+            serie_filter: getSelectedSerieFilter(),
+            date_from: document.getElementById('date_from').value,
+            date_to: document.getElementById('date_to').value,
+            y_metrics: metrics
+        };
+    }
+
+    function applyConfig(cfg) {
+        document.getElementById('x_axis').value = cfg.x_axis || 'date';
+        document.getElementById('x_date_group').value = cfg.x_date_group || 'mois';
+        document.getElementById('serie_dim').value = cfg.serie_dim || '';
+        document.getElementById('date_from').value = cfg.date_from || '';
+        document.getElementById('date_to').value = cfg.date_to || '';
+        toggleDateGroup();
+        document.getElementById('metrics_list').innerHTML = '';
+        (cfg.y_metrics || [{ metric: 'quantite', agg: 'sum' }]).forEach(function(m) {
+            document.getElementById('metrics_list').appendChild(buildMetricChip(m.metric, m.agg));
+        });
+        loadSerieFilter();
+        setTimeout(function() {
+            if (cfg.serie_filter && cfg.serie_filter.length) {
+                document.querySelectorAll('#serie_filter_checkboxes input[type=checkbox]').forEach(function(cb) {
+                    cb.checked = cfg.serie_filter.indexOf(cb.value) >= 0;
+                });
+            }
+        }, 600);
+    }
+
+    function loadSavedList() {
+        fetch('{{ url_for("list_saved_indicators") }}')
+            .then(function(r) { return r.json(); })
+            .then(function(items) {
+                var el = document.getElementById('saved_list');
+                if (!items.length) {
+                    el.innerHTML = '<span style="color:var(--text-muted)">Aucun indicateur enregistré.</span>';
+                    return;
+                }
+                el.innerHTML = items.map(function(it) {
+                    return '<a href="#" class="saved-indicator-link" data-id="' + it.id + '" style="display:block;padding:6px 0;color:var(--accent);text-decoration:none;">' + (it.name || 'Sans nom') + '</a>';
+                }).join('');
+                el.querySelectorAll('.saved-indicator-link').forEach(function(a) {
+                    a.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        fetch('{{ url_for("load_saved_indicator", sid=0) }}'.replace('0', this.dataset.id))
+                            .then(function(r) { return r.json(); })
+                            .then(function(cfg) {
+                                applyConfig(cfg);
+                                loadChart();
+                            });
+                    });
+                });
+            });
+    }
+    loadSavedList();
+
+    document.getElementById('btn_save_indicator').addEventListener('click', function() {
+        var name = prompt('Nom de cet indicateur :', 'Mon indicateur');
+        if (name === null) return;
+        name = (name || 'Sans nom').substring(0, 120);
+        fetch('{{ url_for("save_indicator") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, config: getCurrentConfig() })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function() {
+            loadSavedList();
+            alert('Indicateur enregistré.');
+        })
+        .catch(function() { alert('Erreur lors de l\'enregistrement.'); });
+    });
 })();
 </script>
 {% endblock %}

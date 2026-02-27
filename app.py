@@ -4,13 +4,17 @@ MADIC - Application Flask d'analyse des données carburant.
 Lancer avec : py app.py
 """
 import io
+import json
 import os
 from datetime import datetime
+from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.utils import secure_filename
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import UPLOAD_FOLDER
-from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator
 from excel_importer import import_excel
 from processor import process_all_machines
 from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_machine_detail, get_person_detail
@@ -23,6 +27,117 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
 
 init_db(app)
+
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Connectez-vous pour accéder à cette page.'
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+
+def admin_required(f):
+    @wraps(f)
+    def wrap(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.role != 'admin':
+            flash('Accès réservé aux administrateurs.', 'error')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return wrap
+
+
+def can_import_required(f):
+    """Bloque l'import pour le rôle visualisation."""
+    @wraps(f)
+    def wrap(*args, **kwargs):
+        if current_user.role == 'visualisation':
+            flash('Votre profil ne permet pas d\'importer des données.', 'error')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return wrap
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Page de connexion."""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+        user = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password_hash, password):
+            login_user(user)
+            return redirect(request.args.get('next') or url_for('index'))
+        flash('Identifiant ou mot de passe incorrect.', 'error')
+    return render_template('login.html')
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('Vous avez été déconnecté.', 'success')
+    return redirect(url_for('login'))
+
+
+@app.route('/change-password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    """Changement de mot de passe."""
+    if request.method == 'POST':
+        old = request.form.get('current_password') or ''
+        new1 = request.form.get('new_password') or ''
+        new2 = request.form.get('confirm_password') or ''
+        if not check_password_hash(current_user.password_hash, old):
+            flash('Mot de passe actuel incorrect.', 'error')
+        elif len(new1) < 6:
+            flash('Le nouveau mot de passe doit faire au moins 6 caractères.', 'error')
+        elif new1 != new2:
+            flash('Les deux mots de passe ne correspondent pas.', 'error')
+        else:
+            current_user.password_hash = generate_password_hash(new1)
+            db.session.commit()
+            flash('Mot de passe mis à jour.', 'success')
+            return redirect(url_for('index'))
+    return render_template('change_password.html')
+
+
+@app.route('/parametrage')
+@login_required
+@admin_required
+def parametrage():
+    """Page paramétrage admin - gestion des utilisateurs."""
+    users = User.query.order_by(User.username).all()
+    return render_template('parametrage.html', users=users)
+
+
+@app.route('/parametrage/create-user', methods=['POST'])
+@login_required
+@admin_required
+def create_user():
+    """Crée un nouvel utilisateur."""
+    username = (request.form.get('username') or '').strip()
+    password = request.form.get('password') or ''
+    role = request.form.get('role') or 'utilisateur'
+    if not username:
+        flash('Identifiant requis.', 'error')
+        return redirect(url_for('parametrage'))
+    if len(password) < 6:
+        flash('Le mot de passe doit faire au moins 6 caractères.', 'error')
+        return redirect(url_for('parametrage'))
+    if role not in ('admin', 'utilisateur', 'visualisation'):
+        role = 'utilisateur'
+    if User.query.filter_by(username=username).first():
+        flash(f'L\'utilisateur "{username}" existe déjà.', 'error')
+        return redirect(url_for('parametrage'))
+    u = User(username=username, password_hash=generate_password_hash(password), role=role)
+    db.session.add(u)
+    db.session.commit()
+    flash(f'Utilisateur "{username}" créé.', 'success')
+    return redirect(url_for('parametrage'))
 
 
 def allowed_file(filename):
@@ -39,7 +154,15 @@ def safe_filename(filename):
     return s
 
 
+@app.route('/health')
+def health():
+    """Health check pour Render (pas de login requis)."""
+    return '', 200
+
+
 @app.route('/reset-data', methods=['POST'])
+@login_required
+@can_import_required
 def reset_data():
     """Vide toutes les données pour permettre une réimportation propre (corrige les dates mal parsées)."""
     try:
@@ -55,34 +178,48 @@ def reset_data():
 
 
 @app.route('/', methods=['GET', 'POST'])
+@login_required
 def index():
-    """Page d'accueil / Dashboard. Le filtre reste figé (session) jusqu'à modification par l'utilisateur."""
+    """Page d'accueil / Dashboard. Filtres persistants par utilisateur."""
     machine_filter = None
     person_filter = None
+    uf = UserFilter.query.get(current_user.id)
     if request.method == 'POST':
         machine_filter = request.form.getlist('machines')
         person_filter = request.form.getlist('personnes')
-        session['dashboard_filter'] = {'machines': machine_filter, 'personnes': person_filter}
+        if uf is None:
+            uf = UserFilter(user_id=current_user.id)
+            db.session.add(uf)
+        uf.machines_json = json.dumps(machine_filter)
+        uf.personnes_json = json.dumps(person_filter)
+        db.session.commit()
         return redirect(url_for('index'))
     if request.args.get('clear_filter'):
-        session.pop('dashboard_filter', None)
+        if uf:
+            uf.machines_json = '[]'
+            uf.personnes_json = '[]'
+            db.session.commit()
         return redirect(url_for('index'))
-    filter_data = session.get('dashboard_filter')
-    if filter_data:
-        machine_filter = filter_data.get('machines') or []
-        person_filter = filter_data.get('personnes') or []
+    if uf and (uf.machines_json or uf.personnes_json):
+        try:
+            machine_filter = json.loads(uf.machines_json or '[]')
+            person_filter = json.loads(uf.personnes_json or '[]')
+        except (json.JSONDecodeError, TypeError):
+            machine_filter = person_filter = []
     stats = get_stats(machine_filter=machine_filter if machine_filter else None,
                      person_filter=person_filter if person_filter else None)
     all_machines = get_all_machines_for_filter()
     all_personnes = get_all_personnes_for_filter()
     has_filter = bool(machine_filter or person_filter)
+    can_import = current_user.role != 'visualisation'
     return render_template('index.html',
         stats=stats,
         all_machines=all_machines,
         all_personnes=all_personnes,
         selected_machines=set(machine_filter or []),
         selected_personnes=set(person_filter or []),
-        has_filter=has_filter)
+        has_filter=has_filter,
+        can_import=can_import)
 
 
 def _do_import(filepath, filename):
@@ -96,6 +233,8 @@ def _do_import(filepath, filename):
 
 
 @app.route('/importer-excel', methods=['GET', 'POST'])
+@login_required
+@can_import_required
 def importer_excel():
     """Import d'un fichier Excel (upload ou chemin)."""
     if request.method == 'GET':
@@ -173,6 +312,8 @@ def importer_excel():
 
 
 @app.route('/download-template')
+@login_required
+@can_import_required
 def download_template():
     """Télécharge un modèle Excel vide avec les colonnes attendues et des exemples."""
     import pandas as pd
@@ -195,6 +336,8 @@ def download_template():
 
 
 @app.route('/gestion-imports')
+@login_required
+@can_import_required
 def gestion_imports():
     """Page de gestion des imports Excel."""
     imports_list = HistoryPeriod.query.order_by(HistoryPeriod.imported_at.desc()).all()
@@ -206,6 +349,8 @@ def gestion_imports():
 
 
 @app.route('/imports/<int:import_id>/supprimer', methods=['POST'])
+@login_required
+@can_import_required
 def supprimer_import(import_id):
     """Supprime un import et met à jour les données du site."""
     hp = HistoryPeriod.query.get_or_404(import_id)
@@ -216,6 +361,9 @@ def supprimer_import(import_id):
         db.session.commit()
         return redirect(url_for('gestion_imports'))
     try:
+        raw_ids = [r.id for r in RawData.query.filter_by(history_period_id=import_id).with_entities(RawData.id).all()]
+        if raw_ids:
+            ProcessedData.query.filter(ProcessedData.raw_data_id.in_(raw_ids)).delete(synchronize_session=False)
         RawData.query.filter_by(history_period_id=import_id).delete()
         db.session.delete(hp)
         db.session.commit()
@@ -227,6 +375,7 @@ def supprimer_import(import_id):
 
 
 @app.route('/indicateurs')
+@login_required
 def indicateurs():
     """Page créateur d'indicateurs - graphiques personnalisables."""
     date_min, date_max = get_date_range()
@@ -242,6 +391,7 @@ def indicateurs():
 
 
 @app.route('/api/indicateurs/data')
+@login_required
 def api_indicateurs_data():
     """API retournant les données agrégées pour le graphique (JSON)."""
     x_axis = request.args.get('x_axis', 'date')
@@ -286,6 +436,7 @@ def api_indicateurs_data():
 
 
 @app.route('/api/indicateurs/values/<dimension>')
+@login_required
 def api_indicateurs_values(dimension):
     """API retournant les valeurs disponibles pour une dimension (parc, personne, produit)."""
     if dimension not in ('parc', 'personne', 'produit'):
@@ -302,7 +453,37 @@ def api_indicateurs_values(dimension):
     return jsonify(values)
 
 
+@app.route('/api/indicateurs/save', methods=['POST'])
+@login_required
+def save_indicator():
+    """Enregistre la configuration indicateur actuelle."""
+    data = request.get_json() or {}
+    name = (data.get('name') or 'Sans nom')[:120]
+    config = data.get('config') or {}
+    si = SavedIndicator(user_id=current_user.id, name=name, config_json=json.dumps(config))
+    db.session.add(si)
+    db.session.commit()
+    return jsonify({'id': si.id, 'name': name})
+
+
+@app.route('/api/indicateurs/saved')
+@login_required
+def list_saved_indicators():
+    """Liste les indicateurs enregistrés de l'utilisateur."""
+    items = SavedIndicator.query.filter_by(user_id=current_user.id).order_by(SavedIndicator.created_at.desc()).all()
+    return jsonify([{'id': s.id, 'name': s.name, 'created_at': s.created_at.isoformat() if s.created_at else None} for s in items])
+
+
+@app.route('/api/indicateurs/saved/<int:sid>')
+@login_required
+def load_saved_indicator(sid):
+    """Charge une configuration indicateur enregistrée."""
+    si = SavedIndicator.query.filter_by(id=sid, user_id=current_user.id).first_or_404()
+    return jsonify(json.loads(si.config_json))
+
+
 @app.route('/detail/machine')
+@login_required
 def machine_detail():
     """Page détail d'une machine avec graphiques et données."""
     parc = request.args.get('parc')
@@ -335,6 +516,7 @@ def machine_detail():
 
 
 @app.route('/detail/personne')
+@login_required
 def personne_detail():
     """Page détail d'une personne avec graphiques et données."""
     nom = request.args.get('nom')
@@ -367,6 +549,7 @@ def personne_detail():
 
 
 @app.route('/rapports')
+@login_required
 def rapports():
     """Page des rapports détaillés avec filtre par dates."""
     date_from_s = request.args.get('date_from', '')
@@ -416,6 +599,7 @@ def rapports():
 
 
 @app.route('/download/<format>')
+@login_required
 def download_report(format):
     """Télécharge le rapport PDF ou Excel (avec filtre dates si fourni)."""
     if format not in ('pdf', 'excel'):

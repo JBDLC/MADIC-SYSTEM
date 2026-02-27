@@ -4,15 +4,18 @@
     <h1 class="page-title"><span class="sep">|</span> Dashboard</h1>
     <div class="page-actions">
         <a href="{{ url_for('rapports') }}" class="btn btn-add">Générer rapports</a>
+        {% if can_import %}
         <form action="{{ url_for('importer_excel') }}" method="post" enctype="multipart/form-data" style="display: inline;">
             <div class="file-input-wrapper">
                 <button type="button" class="btn btn-primary" id="btn-import">+ Importer un fichier</button>
                 <input type="file" name="file" id="file-input" accept=".xlsx,.xls,.XLS,.XLSX" onchange="if(this.files.length) this.form.submit();">
             </div>
         </form>
+        {% endif %}
     </div>
 </div>
 
+{% if can_import %}
 <div class="card" style="margin-bottom: 20px;">
     <h2>Import Excel (alternative)</h2>
     <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px;">Si l'upload bloque : collez le chemin complet du fichier. Format des dates : jj/mm/aaaa</p>
@@ -28,6 +31,9 @@
     </div>
 </div>
 <script>document.getElementById('btn-import').onclick = function() { document.getElementById('file-input').click(); };</script>
+{% else %}
+<p style="color: var(--text-muted); margin-bottom: 20px;">Profil visualisation : consultation uniquement.</p>
+{% endif %}
 
 {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
