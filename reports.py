@@ -8,7 +8,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.units import cm
-from database import db, RawData, Anomalie
+from database import db, RawData, Anomalie, MachineMetadata
 from sqlalchemy import func
 
 
@@ -61,6 +61,31 @@ def get_all_machines_for_filter():
     """Retourne la liste de toutes les machines (pour le filtre du dashboard)."""
     rows = db.session.query(RawData.parc).distinct().filter(RawData.parc != '').order_by(RawData.parc).all()
     return [r[0] for r in rows if r[0]]
+
+
+def get_all_machines_with_metadata():
+    """Retourne la liste des machines (parc, total, site_affectation) triées par consommation."""
+    q = db.session.query(
+        RawData.parc,
+        db.func.sum(RawData.quantite).label('total'),
+    ).filter(RawData.parc != '').group_by(RawData.parc).order_by(db.desc('total'))
+    rows = q.all()
+    meta = {m.parc: m.site_affectation or '' for m in MachineMetadata.query.all()}
+    return [(r.parc, r.total, meta.get(r.parc, '')) for r in rows]
+
+
+def get_site_affectation(parc):
+    """Retourne le site d'affectation d'une machine."""
+    m = MachineMetadata.query.get(parc)
+    return (m.site_affectation or '') if m else ''
+
+
+def get_sites_for_parcs(parcs):
+    """Retourne un dict {parc: site_affectation} pour une liste de parcs."""
+    if not parcs:
+        return {}
+    meta = MachineMetadata.query.filter(MachineMetadata.parc.in_(parcs)).all()
+    return {m.parc: (m.site_affectation or '') for m in meta}
 
 
 def get_all_personnes_for_filter():

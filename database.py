@@ -123,6 +123,14 @@ class Anomalie(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class MachineMetadata(db.Model):
+    """Métadonnées des machines (site d'affectation, etc.)."""
+    __tablename__ = 'machine_metadata'
+    
+    parc = db.Column(db.String(50), primary_key=True)
+    site_affectation = db.Column(db.String(50), default='')  # SMP, LPZ, SMP & LPZ
+
+
 class HistoryPeriod(db.Model):
     """Périodes déjà importées (pour éviter les doublons)."""
     __tablename__ = 'history_periods'

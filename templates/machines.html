@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Machines</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Retour au Dashboard</a>
+    </div>
+</div>
+
+<p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 24px;">
+    Liste des machines présentes dans les données importées. Cliquez sur une machine pour accéder à sa page détail.
+</p>
+
+<div class="card">
+    <div class="item-list">
+        {% if machines_list %}
+            {% for parc, total, site in machines_list %}
+            <a href="{{ url_for('machine_detail', parc=parc) }}" class="item-card-link">
+            <div class="item-card {% if loop.index % 3 == 1 %}green{% elif loop.index % 3 == 2 %}blue{% else %}grey{% endif %}">
+                <div class="item-card-left">
+                    <span>●</span>
+                    <span>{{ parc }}</span>
+                    {% if site %}
+                    <span class="item-card-site">{{ site }}</span>
+                    {% endif %}
+                    <span class="item-card-badge">{{ "%.1f"|format(total) }} L</span>
+                </div>
+                <span class="item-card-arrow">→</span>
+            </div>
+            </a>
+            {% endfor %}
+        {% else %}
+            <p style="color: var(--text-muted); padding: 20px;">Aucune machine. Importez un fichier Excel.</p>
+        {% endif %}
+    </div>
+</div>
+<style>
+.item-card-site {
+    font-size: 0.8rem;
+    opacity: 0.9;
+    background: rgba(255,255,255,0.2);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+</style>
+{% endblock %}

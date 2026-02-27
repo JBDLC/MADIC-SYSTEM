@@ -11,10 +11,10 @@ from flask import Flask, render_template, request, redirect, url_for, flash, sen
 from werkzeug.utils import secure_filename
 
 from config import UPLOAD_FOLDER
-from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, MachineMetadata
 from excel_importer import import_excel
 from processor import process_all_machines
-from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_machine_detail, get_person_detail
+from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_machine_detail, get_person_detail, get_all_machines_with_metadata, get_site_affectation, get_sites_for_parcs
 from indicators import get_indicator_data, get_available_values
 
 app = Flask(__name__)
@@ -98,6 +98,8 @@ def index():
                      person_filter=person_filter if person_filter else None)
     all_machines = get_all_machines_for_filter()
     all_personnes = get_all_personnes_for_filter()
+    parcs_in_stats = [m.parc for m in (stats.get('top_machines') or [])]
+    machine_sites = get_sites_for_parcs(parcs_in_stats)
     has_filter = bool(machine_filter or person_filter)
     return render_template('index.html',
         stats=stats,
@@ -105,7 +107,8 @@ def index():
         all_personnes=all_personnes,
         selected_machines=set(machine_filter or []),
         selected_personnes=set(person_filter or []),
-        has_filter=has_filter)
+        has_filter=has_filter,
+        machine_sites=machine_sites)
 
 
 def _do_import(filepath, filename):
@@ -216,6 +219,35 @@ def download_template():
     buf.seek(0)
     return send_file(buf, as_attachment=True, download_name='modele_madic.xlsx',
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@app.route('/machines')
+def machines():
+    """Page liste des machines (présentes dans les imports)."""
+    machines_list = get_all_machines_with_metadata()
+    return render_template('machines.html', machines_list=machines_list)
+
+
+@app.route('/detail/machine/<path:parc>/update-site', methods=['POST'])
+def update_machine_site(parc):
+    """Met à jour le site d'affectation d'une machine."""
+    if not parc or not str(parc).strip():
+        return redirect(url_for('index'))
+    site = (request.form.get('site_affectation') or '').strip()
+    allowed = ('SMP', 'LPZ', 'SMP & LPZ')
+    if site not in allowed:
+        site = ''
+    meta = MachineMetadata.query.get(parc)
+    if meta:
+        meta.site_affectation = site
+    else:
+        meta = MachineMetadata(parc=parc, site_affectation=site)
+        db.session.add(meta)
+    db.session.commit()
+    flash(f'Site d\'affectation mis à jour : {site or "(aucun)"}', 'success')
+    return redirect(url_for('machine_detail', parc=parc,
+        date_from=request.form.get('date_from') or '',
+        date_to=request.form.get('date_to') or ''))
 
 
 @app.route('/gestion-imports')
@@ -349,6 +381,7 @@ def machine_detail(parc):
     detail['by_date_chart'] = [[str(d.dt) if hasattr(d, 'dt') else d[0], float(d.total) if hasattr(d, 'total') else d[1]] for d in (detail.get('by_date') or [])]
     detail['by_personne_chart'] = [[str(p[0]) or '-', float(p[1]) if len(p) > 1 else 0] for p in (detail.get('by_personne') or [])]
     detail['anomalies_json'] = [{'type_anomalie': a.type_anomalie} for a in (detail.get('anomalies') or [])]
+    site_affectation = get_site_affectation(parc)
     date_min, date_max = get_date_range()
     def _to_iso(d):
         if d is None:
@@ -358,6 +391,7 @@ def machine_detail(parc):
     date_to_val = request.args.get('date_to', '') or _to_iso(date_max)
     return render_template('detail_machine.html',
         detail=detail,
+        site_affectation=site_affectation,
         date_min_str=_to_iso(date_min),
         date_max_str=_to_iso(date_max),
         date_from_val=date_from_val,
