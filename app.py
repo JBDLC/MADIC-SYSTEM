@@ -4,17 +4,15 @@ MADIC - Application Flask d'analyse des données carburant.
 Lancer avec : py app.py
 """
 import os
-import io
-from urllib.parse import urlencode
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session
 from werkzeug.utils import secure_filename
 
 from config import UPLOAD_FOLDER
-from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, MachineMetadata
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod
 from excel_importer import import_excel
 from processor import process_all_machines
-from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_machine_detail, get_person_detail, get_all_machines_with_metadata, get_site_affectation, get_sites_for_parcs
+from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_machine_detail, get_person_detail
 from indicators import get_indicator_data, get_available_values
 
 app = Flask(__name__)
@@ -40,12 +38,6 @@ def safe_filename(filename):
     return s
 
 
-@app.route('/health')
-def health():
-    """Health check léger pour Render (pas de requête DB)."""
-    return '', 200
-
-
 @app.route('/reset-data', methods=['POST'])
 def reset_data():
     """Vide toutes les données pour permettre une réimportation propre (corrige les dates mal parsées)."""
@@ -61,27 +53,11 @@ def reset_data():
     return redirect(url_for('index'))
 
 
-def _redirect_index_with_filters():
-    """Redirige vers le dashboard en préservant les filtres (session ou URL)."""
-    filter_data = session.get('dashboard_filter')
-    if filter_data and (filter_data.get('machines') or filter_data.get('personnes')):
-        params = [('machines', m) for m in filter_data.get('machines', [])]
-        params += [('personnes', p) for p in filter_data.get('personnes', [])]
-        return redirect(url_for('index') + '?' + urlencode(params))
-    return redirect(url_for('index'))
-
-
 @app.route('/', methods=['GET', 'POST'])
 def index():
     """Page d'accueil / Dashboard. Le filtre reste figé (session) jusqu'à modification par l'utilisateur."""
     machine_filter = None
     person_filter = None
-    # Restauration des filtres depuis l'URL (après import, la session peut être perdue)
-    if request.args.getlist('machines') or request.args.getlist('personnes'):
-        machine_filter = request.args.getlist('machines')
-        person_filter = request.args.getlist('personnes')
-        session['dashboard_filter'] = {'machines': machine_filter, 'personnes': person_filter}
-        return redirect(url_for('index'))
     if request.method == 'POST':
         machine_filter = request.form.getlist('machines')
         person_filter = request.form.getlist('personnes')
@@ -98,8 +74,6 @@ def index():
                      person_filter=person_filter if person_filter else None)
     all_machines = get_all_machines_for_filter()
     all_personnes = get_all_personnes_for_filter()
-    parcs_in_stats = [m.parc for m in (stats.get('top_machines') or [])]
-    machine_sites = get_sites_for_parcs(parcs_in_stats)
     has_filter = bool(machine_filter or person_filter)
     return render_template('index.html',
         stats=stats,
@@ -107,8 +81,7 @@ def index():
         all_personnes=all_personnes,
         selected_machines=set(machine_filter or []),
         selected_personnes=set(person_filter or []),
-        has_filter=has_filter,
-        machine_sites=machine_sites)
+        has_filter=has_filter)
 
 
 def _do_import(filepath, filename):
@@ -144,27 +117,27 @@ def importer_excel():
                     flash(f'Toutes les lignes ({nb_skipped}) étaient déjà présentes.', 'warning')
                 else:
                     flash('Aucune donnée valide trouvée.', 'warning')
-                return _redirect_index_with_filters()
+                return redirect(url_for('index'))
             except Exception as e:
                 flash(f'Erreur : {str(e)}', 'error')
-                return _redirect_index_with_filters()
+                return redirect(url_for('index'))
         else:
             flash('Format non autorisé. Utilisez .xlsx ou .xls', 'error')
-            return _redirect_index_with_filters()
+            return redirect(url_for('index'))
     
     # Option 2: Upload classique
     if 'file' not in request.files:
         flash('Aucun fichier. Glissez-déposez ou collez le chemin complet du fichier.', 'error')
-        return _redirect_index_with_filters()
+        return redirect(url_for('index'))
     
     file = request.files['file']
     if file.filename == '':
         flash('Aucun fichier sélectionné.', 'error')
-        return _redirect_index_with_filters()
+        return redirect(url_for('index'))
     
     if not allowed_file(file.filename):
         flash('Format non autorisé. Utilisez .xlsx ou .xls', 'error')
-        return _redirect_index_with_filters()
+        return redirect(url_for('index'))
     
     filename = safe_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -172,7 +145,7 @@ def importer_excel():
         file.save(filepath)
     except Exception as e:
         flash(f'Impossible de sauvegarder le fichier (antivirus?). Collez le chemin dans le champ ci-dessous : {e}', 'error')
-        return _redirect_index_with_filters()
+        return redirect(url_for('index'))
     
     try:
         nb_imported, nb_skipped, date_min, date_max = _do_import(filepath, filename)
@@ -195,59 +168,7 @@ def importer_excel():
             except Exception:
                 pass
     
-    return _redirect_index_with_filters()
-
-
-@app.route('/download-template')
-def download_template():
-    """Télécharge un modèle Excel vide avec les colonnes attendues et un exemple."""
-    import pandas as pd
-    cols = ['Date', 'Heure', 'N° Parc', 'Service véhicule', 'Personne',
-            'Service personne', 'Produit', 'Quantité', 'Compteur', 'Unité']
-    # Lignes d'exemple (format attendu : jj/mm/aaaa, HH:MM:SS)
-    rows = [
-        {'Date': '01/02/2025', 'Heure': '08:30:00', 'N° Parc': 'H56-001', 'Service véhicule': 'Fleet',
-         'Personne': 'Dupont', 'Service personne': 'Opérations', 'Produit': 'Diesel',
-         'Quantité': 45.5, 'Compteur': 125000, 'Unité': 'L'},
-        {'Date': '02/02/2025', 'Heure': '14:15:00', 'N° Parc': 'H56-002', 'Service véhicule': 'Fleet',
-         'Personne': 'Martin', 'Service personne': 'Opérations', 'Produit': 'Diesel',
-         'Quantité': 52.3, 'Compteur': 87500, 'Unité': 'L'},
-    ]
-    df = pd.DataFrame(rows, columns=cols)
-    buf = io.BytesIO()
-    df.to_excel(buf, index=False, sheet_name='Transactions')
-    buf.seek(0)
-    return send_file(buf, as_attachment=True, download_name='modele_madic.xlsx',
-                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
-
-@app.route('/machines')
-def machines():
-    """Page liste des machines (présentes dans les imports)."""
-    machines_list = get_all_machines_with_metadata()
-    return render_template('machines.html', machines_list=machines_list)
-
-
-@app.route('/detail/machine/<path:parc>/update-site', methods=['POST'])
-def update_machine_site(parc):
-    """Met à jour le site d'affectation d'une machine."""
-    if not parc or not str(parc).strip():
-        return redirect(url_for('index'))
-    site = (request.form.get('site_affectation') or '').strip()
-    allowed = ('SMP', 'LPZ', 'SMP & LPZ')
-    if site not in allowed:
-        site = ''
-    meta = MachineMetadata.query.get(parc)
-    if meta:
-        meta.site_affectation = site
-    else:
-        meta = MachineMetadata(parc=parc, site_affectation=site)
-        db.session.add(meta)
-    db.session.commit()
-    flash(f'Site d\'affectation mis à jour : {site or "(aucun)"}', 'success')
-    return redirect(url_for('machine_detail', parc=parc,
-        date_from=request.form.get('date_from') or '',
-        date_to=request.form.get('date_to') or ''))
+    return redirect(url_for('index'))
 
 
 @app.route('/gestion-imports')
@@ -272,10 +193,6 @@ def supprimer_import(import_id):
         db.session.commit()
         return redirect(url_for('gestion_imports'))
     try:
-        # Supprimer d'abord les données dérivées qui référencent raw_data (contrainte FK PostgreSQL)
-        raw_ids = [r.id for r in RawData.query.filter_by(history_period_id=import_id).with_entities(RawData.id).all()]
-        if raw_ids:
-            ProcessedData.query.filter(ProcessedData.raw_data_id.in_(raw_ids)).delete(synchronize_session=False)
         RawData.query.filter_by(history_period_id=import_id).delete()
         db.session.delete(hp)
         db.session.commit()
@@ -362,10 +279,12 @@ def api_indicateurs_values(dimension):
     return jsonify(values)
 
 
-@app.route('/detail/machine/<path:parc>')
-def machine_detail(parc):
+@app.route('/detail/machine')
+def machine_detail():
     """Page détail d'une machine avec graphiques et données."""
-    if not parc or not str(parc).strip():
+    parc = request.args.get('parc')
+    if not parc:
+        flash('Machine non spécifiée.', 'error')
         return redirect(url_for('index'))
     date_from = date_to = None
     try:
@@ -381,39 +300,23 @@ def machine_detail(parc):
     detail['by_date_chart'] = [[str(d.dt) if hasattr(d, 'dt') else d[0], float(d.total) if hasattr(d, 'total') else d[1]] for d in (detail.get('by_date') or [])]
     detail['by_personne_chart'] = [[str(p[0]) or '-', float(p[1]) if len(p) > 1 else 0] for p in (detail.get('by_personne') or [])]
     detail['anomalies_json'] = [{'type_anomalie': a.type_anomalie} for a in (detail.get('anomalies') or [])]
-    site_affectation = get_site_affectation(parc)
     date_min, date_max = get_date_range()
     def _to_iso(d):
         if d is None:
             return ''
         return d.isoformat() if hasattr(d, 'isoformat') else str(d)[:10]
-    date_from_val = request.args.get('date_from', '') or _to_iso(date_min)
-    date_to_val = request.args.get('date_to', '') or _to_iso(date_max)
     return render_template('detail_machine.html',
         detail=detail,
-        site_affectation=site_affectation,
         date_min_str=_to_iso(date_min),
-        date_max_str=_to_iso(date_max),
-        date_from_val=date_from_val,
-        date_to_val=date_to_val)
-
-
-@app.route('/detail/machine')
-def machine_detail_redirect():
-    """Redirection si accès sans parc (ex: health check Render)."""
-    return redirect(url_for('index'))
+        date_max_str=_to_iso(date_max))
 
 
 @app.route('/detail/personne')
-def personne_detail_redirect():
-    """Redirection si accès sans nom."""
-    return redirect(url_for('index'))
-
-
-@app.route('/detail/personne/<path:nom>')
-def personne_detail(nom):
+def personne_detail():
     """Page détail d'une personne avec graphiques et données."""
-    if not nom or not str(nom).strip():
+    nom = request.args.get('nom')
+    if not nom:
+        flash('Personne non spécifiée.', 'error')
         return redirect(url_for('index'))
     date_from = date_to = None
     try:
@@ -434,14 +337,10 @@ def personne_detail(nom):
         if d is None:
             return ''
         return d.isoformat() if hasattr(d, 'isoformat') else str(d)[:10]
-    date_from_val = request.args.get('date_from', '') or _to_iso(date_min)
-    date_to_val = request.args.get('date_to', '') or _to_iso(date_max)
     return render_template('detail_personne.html',
         detail=detail,
         date_min_str=_to_iso(date_min),
-        date_max_str=_to_iso(date_max),
-        date_from_val=date_from_val,
-        date_to_val=date_to_val)
+        date_max_str=_to_iso(date_max))
 
 
 @app.route('/rapports')

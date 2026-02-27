@@ -43,12 +43,8 @@ def _migrate_add_history_period_id(app):
 def init_db(app):
     """Initialise la base de données avec l'application Flask."""
     if DATABASE_URL:
-        opts = {'pool_pre_ping': True, 'pool_recycle': 300}
-        # Timeout connexion PostgreSQL (évite blocage au cold start Render)
-        if 'postgresql' in (DATABASE_URL or ''):
-            opts['connect_args'] = {'connect_timeout': 15}
         app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = opts
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True, 'pool_recycle': 300}
     elif os.environ.get('DATABASE_URL') and '://' not in os.environ.get('DATABASE_URL', ''):
         raise ValueError(
             "DATABASE_URL invalide. Sur Render : va dans PostgreSQL → ta base → Connections, "
@@ -121,14 +117,6 @@ class Anomalie(db.Model):
     quantite_after = db.Column(db.Float)
     details = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-
-class MachineMetadata(db.Model):
-    """Métadonnées des machines (site d'affectation, etc.)."""
-    __tablename__ = 'machine_metadata'
-    
-    parc = db.Column(db.String(50), primary_key=True)
-    site_affectation = db.Column(db.String(50), default='')  # SMP, LPZ, SMP & LPZ
 
 
 class HistoryPeriod(db.Model):

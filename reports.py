@@ -8,7 +8,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.units import cm
-from database import db, RawData, Anomalie, MachineMetadata
+from database import db, RawData, Anomalie
 from sqlalchemy import func
 
 
@@ -61,31 +61,6 @@ def get_all_machines_for_filter():
     """Retourne la liste de toutes les machines (pour le filtre du dashboard)."""
     rows = db.session.query(RawData.parc).distinct().filter(RawData.parc != '').order_by(RawData.parc).all()
     return [r[0] for r in rows if r[0]]
-
-
-def get_all_machines_with_metadata():
-    """Retourne la liste des machines (parc, total, site_affectation) triées par consommation."""
-    q = db.session.query(
-        RawData.parc,
-        db.func.sum(RawData.quantite).label('total'),
-    ).filter(RawData.parc != '').group_by(RawData.parc).order_by(db.desc('total'))
-    rows = q.all()
-    meta = {m.parc: m.site_affectation or '' for m in MachineMetadata.query.all()}
-    return [(r.parc, r.total, meta.get(r.parc, '')) for r in rows]
-
-
-def get_site_affectation(parc):
-    """Retourne le site d'affectation d'une machine."""
-    m = MachineMetadata.query.get(parc)
-    return (m.site_affectation or '') if m else ''
-
-
-def get_sites_for_parcs(parcs):
-    """Retourne un dict {parc: site_affectation} pour une liste de parcs."""
-    if not parcs:
-        return {}
-    meta = MachineMetadata.query.filter(MachineMetadata.parc.in_(parcs)).all()
-    return {m.parc: (m.site_affectation or '') for m in meta}
 
 
 def get_all_personnes_for_filter():
@@ -154,13 +129,12 @@ def get_machine_detail(parc, date_from=None, date_to=None):
     q4 = _date_filter(q4, Anomalie, date_from, date_to)
     anomalies = q4.order_by(Anomalie.date.desc()).all()
     
-    dt_col = func.date(RawData.date_heure)
     q5 = db.session.query(
-        dt_col.label('dt'),
+        func.date(RawData.date_heure).label('dt'),
         db.func.sum(RawData.quantite).label('total'),
     ).filter(RawData.parc == parc)
     q5 = _date_filter(q5, RawData, date_from, date_to)
-    by_date = q5.group_by(dt_col).order_by(dt_col).all()
+    by_date = q5.group_by(func.date(RawData.date_heure)).order_by('dt').all()
     
     return {
         'parc': parc,
@@ -203,13 +177,12 @@ def get_person_detail(personne, date_from=None, date_to=None):
     q4 = _date_filter(q4, Anomalie, date_from, date_to)
     anomalies = q4.order_by(Anomalie.date.desc()).all()
     
-    dt_col = func.date(RawData.date_heure)
     q5 = db.session.query(
-        dt_col.label('dt'),
+        func.date(RawData.date_heure).label('dt'),
         db.func.sum(RawData.quantite).label('total'),
     ).filter(RawData.personne == personne)
     q5 = _date_filter(q5, RawData, date_from, date_to)
-    by_date = q5.group_by(dt_col).order_by(dt_col).all()
+    by_date = q5.group_by(func.date(RawData.date_heure)).order_by('dt').all()
     
     return {
         'personne': personne,

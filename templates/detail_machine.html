@@ -3,54 +3,22 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 {% endblock %}
 {% block content %}
-<div class="page-header" style="flex-wrap: wrap; gap: 12px;">
-    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-        <h1 class="page-title" style="margin: 0;"><span class="sep">|</span> Machine {{ detail.parc }}</h1>
-        {% if site_affectation %}
-        <span class="machine-site-badge">{{ site_affectation }}</span>
-        {% endif %}
-    </div>
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Machine {{ detail.parc }}</h1>
     <div class="page-actions">
-        <a href="{{ url_for('machines') }}" class="btn btn-secondary">Liste machines</a>
         <a href="{{ url_for('index') }}" class="btn btn-secondary">← Retour au Dashboard</a>
     </div>
 </div>
 
-<form method="post" action="{{ url_for('update_machine_site', parc=detail.parc) }}" class="card" style="margin-bottom: 20px;">
-    <input type="hidden" name="date_from" value="{{ date_from_val }}">
-    <input type="hidden" name="date_to" value="{{ date_to_val }}">
-    <h2>Site d'affectation</h2>
-    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-        <select name="site_affectation" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #ddd; min-width: 140px;">
-            <option value="">— Aucun —</option>
-            <option value="SMP" {% if site_affectation == 'SMP' %}selected{% endif %}>SMP</option>
-            <option value="LPZ" {% if site_affectation == 'LPZ' %}selected{% endif %}>LPZ</option>
-            <option value="SMP & LPZ" {% if site_affectation == 'SMP & LPZ' %}selected{% endif %}>SMP & LPZ</option>
-        </select>
-        <button type="submit" class="btn btn-primary">Mettre à jour</button>
-    </div>
-</form>
-
 <form method="get" action="{{ url_for('machine_detail', parc=detail.parc) }}" class="card" style="margin-bottom: 20px;">
-    <h2>Période (cette machine uniquement)</h2>
+    <h2>Période</h2>
     <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
-        <label>Du <input type="date" name="date_from" value="{{ date_from_val }}" min="{{ date_min_str }}" max="{{ date_max_str }}"></label>
-        <label>Au <input type="date" name="date_to" value="{{ date_to_val }}" min="{{ date_min_str }}" max="{{ date_max_str }}"></label>
+        <label>Du <input type="date" name="date_from" value="{{ request.args.get('date_from', date_min_str) }}"></label>
+        <label>Au <input type="date" name="date_to" value="{{ request.args.get('date_to', date_max_str) }}"></label>
         <button type="submit" class="btn btn-primary">Filtrer</button>
         <a href="{{ url_for('machine_detail', parc=detail.parc) }}" class="btn btn-secondary">Toute la période</a>
     </div>
 </form>
-
-<style>
-.machine-site-badge {
-    background: var(--accent);
-    color: white;
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 500;
-}
-</style>
 
 <div class="grid" style="margin-bottom: 24px;">
     <div class="stat-card">

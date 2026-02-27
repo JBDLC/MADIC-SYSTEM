@@ -16,12 +16,11 @@
 <div class="card" style="margin-bottom: 20px;">
     <h2>Import Excel (alternative)</h2>
     <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 12px;">Si l'upload bloque : collez le chemin complet du fichier. Format des dates : jj/mm/aaaa</p>
-    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px;">
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
         <form action="{{ url_for('importer_excel') }}" method="post" enctype="multipart/form-data" style="display: flex; flex: 1; min-width: 280px; gap: 8px; flex-wrap: wrap;">
             <input type="text" name="filepath" placeholder="C:\Users\...\Downloads\Transactions MADIC.xls" style="flex: 1; min-width: 200px;">
             <button type="submit" class="btn btn-secondary">Importer par chemin</button>
         </form>
-        <a href="{{ url_for('download_template') }}" class="btn btn-secondary">Télécharger le modèle Excel</a>
         <form action="{{ url_for('reset_data') }}" method="post" style="display: inline;" onsubmit="return confirm('Supprimer toutes les données ? Cela effacera tout : imports, lignes brutes, données traitées et anomalies. Réimportez ensuite vos fichiers.');">
             <button type="submit" class="btn btn-secondary" style="border-color: var(--danger); color: var(--danger);">Réinitialiser les données</button>
         </form>
@@ -52,7 +51,6 @@
     <div class="page-header" style="margin-bottom: 16px;">
         <h2 style="margin: 0;">| Les machines suivies</h2>
         <div style="display: flex; gap: 8px; align-items: center;">
-            <a href="{{ url_for('machines') }}" class="btn btn-secondary">Toutes les machines</a>
             <button type="button" class="btn btn-secondary" id="btn-filter-machines" onclick="document.getElementById('filter-machines-box').classList.toggle('hidden')">Filtrer les machines</button>
             <a href="{{ url_for('rapports') }}" class="btn btn-add">+ Export</a>
         </div>
@@ -93,9 +91,6 @@
                 <div class="item-card-left">
                     <span>●</span>
                     <span>{{ m.parc }}</span>
-                    {% if machine_sites.get(m.parc) %}
-                    <span class="item-card-site">{{ machine_sites.get(m.parc) }}</span>
-                    {% endif %}
                     <span class="item-card-badge">{{ "%.1f"|format(m.total) }} L</span>
                 </div>
                 <span class="item-card-arrow">→</span>
@@ -161,13 +156,6 @@
 .item-card-link { text-decoration: none; color: inherit; display: block; }
 .item-card-link:hover .item-card { opacity: 0.9; }
 .item-card { position: relative; }
-.item-card-site {
-    font-size: 0.8rem;
-    opacity: 0.9;
-    background: rgba(255,255,255,0.2);
-    padding: 2px 8px;
-    border-radius: 4px;
-}
 .item-card-arrow {
     position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
     opacity: 0.6; font-size: 1.2rem;
