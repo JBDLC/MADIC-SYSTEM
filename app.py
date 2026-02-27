@@ -3,6 +3,7 @@
 MADIC - Application Flask d'analyse des données carburant.
 Lancer avec : py app.py
 """
+import io
 import os
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session
@@ -169,6 +170,28 @@ def importer_excel():
                 pass
     
     return redirect(url_for('index'))
+
+
+@app.route('/download-template')
+def download_template():
+    """Télécharge un modèle Excel vide avec les colonnes attendues et des exemples."""
+    import pandas as pd
+    cols = ['Date', 'Heure', 'N° Parc', 'Service véhicule', 'Personne',
+            'Service personne', 'Produit', 'Quantité', 'Compteur', 'Unité']
+    rows = [
+        {'Date': '01/02/2025', 'Heure': '08:30:00', 'N° Parc': 'H56-001', 'Service véhicule': 'Fleet',
+         'Personne': 'Dupont', 'Service personne': 'Opérations', 'Produit': 'Diesel',
+         'Quantité': 45.5, 'Compteur': 125000, 'Unité': 'L'},
+        {'Date': '02/02/2025', 'Heure': '14:15:00', 'N° Parc': 'H56-002', 'Service véhicule': 'Fleet',
+         'Personne': 'Martin', 'Service personne': 'Opérations', 'Produit': 'Diesel',
+         'Quantité': 52.3, 'Compteur': 87500, 'Unité': 'L'},
+    ]
+    df = pd.DataFrame(rows, columns=cols)
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, sheet_name='Transactions')
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name='modele_madic.xlsx',
+                    mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 @app.route('/gestion-imports')
