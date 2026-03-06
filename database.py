@@ -162,6 +162,52 @@ class SavedIndicator(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class AnomalieTypeConfig(db.Model):
+    """Configuration par type d'anomalie : détection et inclusion dans le décompte."""
+    __tablename__ = 'anomalie_type_config'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    type_key = db.Column(db.String(50), unique=True, nullable=False)  # zero_quantity, compteur_decreased, etc.
+    label = db.Column(db.String(120), nullable=False)  # Libellé affiché
+    enabled = db.Column(db.Boolean, default=True)  # Détecter ce type
+    include_in_count = db.Column(db.Boolean, default=True)  # Inclure dans le décompte (dashboard, etc.)
+    sort_order = db.Column(db.Integer, default=0)
+
+
+def _ensure_anomalie_type_config():
+    """Crée les configs par défaut pour chaque type d'anomalie."""
+    defaults = [
+        ('zero_quantity', 'Zero quantity', True, True, 1),
+        ('compteur_decreased', 'Compteur decreased', True, True, 2),
+        ('jump', 'Saut compteur > seuil', True, True, 3),
+        ('compteur_zero', 'Compteur zero', True, True, 4),
+        ('compteur_identique', 'Compteur identique malgré plein', True, True, 5),
+    ]
+    for key, label, enabled, inc, order in defaults:
+        if AnomalieTypeConfig.query.filter_by(type_key=key).first() is None:
+            c = AnomalieTypeConfig(type_key=key, label=label, enabled=enabled, include_in_count=inc, sort_order=order)
+            db.session.add(c)
+    db.session.commit()
+
+
+def get_anomalie_type_key(type_anomalie):
+    """Mappe type_anomalie (string en base) vers type_key."""
+    if not type_anomalie:
+        return None
+    s = str(type_anomalie).strip()
+    if s == 'Zero quantity':
+        return 'zero_quantity'
+    if s == 'Compteur decreased':
+        return 'compteur_decreased'
+    if s and s.startswith('Jump >'):
+        return 'jump'
+    if s == 'Compteur zero':
+        return 'compteur_zero'
+    if s == 'Compteur identique malgré plein':
+        return 'compteur_identique'
+    return None
+
+
 class HistoryPeriod(db.Model):
     """Périodes déjà importées (pour éviter les doublons)."""
     __tablename__ = 'history_periods'
