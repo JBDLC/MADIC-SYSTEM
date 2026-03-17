@@ -402,6 +402,32 @@ def set_jump_threshold(value):
     return v
 
 
+def get_compteur_zero_excluded_products():
+    """Produits à ignorer pour l'anomalie compteur zéro (ex: ADB sans compteur demandé)."""
+    import json
+    try:
+        row = SystemConfig.query.filter_by(key='compteur_zero_excluded_products').first()
+        if row and row.value:
+            lst = json.loads(row.value)
+            return set(x for x in lst if isinstance(x, str))
+    except (ValueError, TypeError):
+        pass
+    return set()
+
+
+def set_compteur_zero_excluded_products(products):
+    """Enregistre la liste des produits exclus pour compteur zéro."""
+    import json
+    lst = list(products) if products else []
+    row = SystemConfig.query.filter_by(key='compteur_zero_excluded_products').first()
+    if row:
+        row.value = json.dumps(lst)
+    else:
+        row = SystemConfig(key='compteur_zero_excluded_products', value=json.dumps(lst))
+        db.session.add(row)
+    db.session.commit()
+
+
 class HistoryPeriod(db.Model):
     """Périodes déjà importées (pour éviter les doublons)."""
     __tablename__ = 'history_periods'

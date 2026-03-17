@@ -29,6 +29,19 @@
             <input type="number" id="jump_threshold" name="jump_threshold" value="{{ jump_threshold }}" min="1" step="1" style="width: 80px; padding: 6px;">
             <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 8px;">À partir de ce saut (km) entre deux relevés, une anomalie est créée. S'applique à tous. Si modifié, les anomalies sont recalculées.</span>
         </div>
+        <div style="margin-bottom: 20px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
+            <label style="font-weight: 600; display: block; margin-bottom: 8px;">Produits à exclure pour « compteur zéro »</label>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Produits (ex: ADB) où le compteur n'est pas demandé. Pas d'anomalie « compteur zéro » pour ces relevés, et le calcul des différences utilise les relevés normaux qui les entourent.</p>
+            <select name="compteur_zero_excluded_products" multiple size="4" style="min-width: 200px; padding: 6px;">
+                {% for p in all_produits %}
+                <option value="{{ p }}" {% if p in compteur_zero_excluded %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+                {% if not all_produits %}
+                <option disabled>Aucun produit importé</option>
+                {% endif %}
+            </select>
+            <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 8px;">Ctrl+clic pour plusieurs</span>
+        </div>
         <table>
             <thead>
                 <tr>

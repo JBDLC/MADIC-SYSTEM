@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Traitement des données et détection des anomalies."""
 from datetime import datetime
-from database import db, RawData, ProcessedData, Anomalie, get_jump_threshold
+from database import db, RawData, ProcessedData, Anomalie, get_jump_threshold, get_compteur_zero_excluded_products
 
 
 def process_all_machines():
@@ -22,17 +22,32 @@ def process_all_machines():
 
 
 def _process_machine(parc):
-    """Traite une machine : tri, calculs, anomalies."""
+    """Traite une machine : tri, calculs, anomalies.
+    Produits exclus (ex: ADB) : pas d'anomalie compteur zero, et on "saute" ces relevés
+    pour le calcul des diff (on utilise les 2 relevés normaux qui entourent).
+    """
     rows = RawData.query.filter_by(parc=parc).order_by(RawData.date_heure).all()
+    excluded_products = get_compteur_zero_excluded_products()
     
     prev = None
+    prev_normal = None  # Dernier relevé dont le produit n'est pas exclu (pour bridger)
     for row in rows:
-        compteur_before = prev.compteur if prev else row.compteur
+        produit = (row.produit or '').strip()
+        is_excluded = produit in excluded_products
+        
+        # Pour les comparaisons de compteur, on utilise prev_normal (saute les exclus)
         compteur_after = row.compteur
+        if prev_normal is not None:
+            compteur_before = prev_normal.compteur
+            prev_date = prev_normal.date_heure
+            diff_compteur = compteur_after - compteur_before
+        else:
+            compteur_before = row.compteur
+            prev_date = prev.date_heure if prev else None
+            diff_compteur = 0
+        
         quantite_before = prev.quantite if prev else row.quantite
         quantite_after = row.quantite
-        prev_date = prev.date_heure if prev else None
-        diff_compteur = compteur_after - compteur_before if prev else 0
         
         pd_row = ProcessedData(
             raw_data_id=row.id,
@@ -51,7 +66,7 @@ def _process_machine(parc):
         )
         db.session.add(pd_row)
         
-        # Détection des anomalies
+        # Détection des anomalies (skip_compteur_zero pour produits exclus)
         anomalies = _detect_anomalies(
             parc=parc,
             date=row.date_heure,
@@ -63,17 +78,23 @@ def _process_machine(parc):
             quantite_before=quantite_before,
             quantite_after=quantite_after,
             diff_compteur=diff_compteur,
+            skip_compteur_zero=is_excluded,
         )
-        for a in anomalies:
-            db.session.add(a)
+        # Pour les relevés exclus (ex: ADB), on ne crée aucune anomalie (compteur non fiable)
+        if not is_excluded:
+            for a in anomalies:
+                db.session.add(a)
         
         prev = row
+        if not is_excluded:
+            prev_normal = row
 
 
 def _detect_anomalies(parc, date, prev_date, personne, produit=None,
                       compteur_before=0, compteur_after=0, 
-                      quantite_before=0, quantite_after=0, diff_compteur=0):
-    """Détecte les anomalies pour une ligne. Tous les types sont stockés; le filtrage par user se fait à l'affichage."""
+                      quantite_before=0, quantite_after=0, diff_compteur=0,
+                      skip_compteur_zero=False):
+    """Détecte les anomalies. skip_compteur_zero=True pour les produits exclus (ex: ADB)."""
     anomalies = []
     
     # 1. Zero quantity
@@ -104,8 +125,8 @@ def _detect_anomalies(parc, date, prev_date, personne, produit=None,
             details=f'Saut de {diff_compteur} km (seuil: {threshold})'
         ))
     
-    # 4. Compteur == 0
-    if compteur_after == 0:
+    # 4. Compteur == 0 (sauf produits exclus comme ADB où le compteur n'est pas demandé)
+    if compteur_after == 0 and not skip_compteur_zero:
         anomalies.append(Anomalie(
             machine=parc, type_anomalie='Compteur zero', produit=produit, date=date, prev_date=prev_date,
             personne=personne, compteur_before=compteur_before, compteur_after=compteur_after,

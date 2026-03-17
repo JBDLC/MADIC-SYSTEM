@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import UPLOAD_FOLDER
-from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold, get_compteur_zero_excluded_products, set_compteur_zero_excluded_products
 from excel_importer import import_excel
 from processor import process_all_machines
 from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_all_produits_for_filter, get_machine_detail, get_person_detail
@@ -121,7 +121,8 @@ def mes_preferences():
     anomalie_configs = get_user_anomalie_configs(current_user.id)
     all_produits = get_all_produits_for_filter()
     jump_threshold = get_jump_threshold()
-    return render_template('mes_preferences.html', anomalie_configs=anomalie_configs, all_produits=all_produits, jump_threshold=jump_threshold)
+    compteur_zero_excluded = get_compteur_zero_excluded_products()
+    return render_template('mes_preferences.html', anomalie_configs=anomalie_configs, all_produits=all_produits, jump_threshold=jump_threshold, compteur_zero_excluded=compteur_zero_excluded)
 
 
 @app.route('/mes-preferences/anomalie-types', methods=['POST'])
@@ -149,11 +150,17 @@ def update_user_anomalie_types():
     threshold_changed = new_threshold != old_threshold
     if new_threshold >= 1:
         set_jump_threshold(new_threshold)
+    # Produits exclus pour compteur zéro (global, ex: ADB)
+    new_excluded = set(request.form.getlist('compteur_zero_excluded_products'))
+    old_excluded = get_compteur_zero_excluded_products()
+    excluded_changed = new_excluded != old_excluded
+    set_compteur_zero_excluded_products(new_excluded)
     db.session.commit()
-    if threshold_changed and new_threshold >= 1:
+    need_reprocess = threshold_changed or excluded_changed
+    if need_reprocess:
         try:
             process_all_machines()
-            flash('Préférences enregistrées. Le seuil de saut a changé : les anomalies ont été recalculées.', 'success')
+            flash('Préférences enregistrées. Paramètres de détection modifiés : les anomalies ont été recalculées.', 'success')
         except Exception as e:
             flash(f'Préférences enregistrées mais erreur au recalcul : {str(e)}', 'error')
     else:
