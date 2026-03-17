@@ -65,6 +65,30 @@ def _migrate_user_anomalie_produits(app):
         pass
 
 
+def _migrate_user_filter_dates(app):
+    """Ajoute date_from_str et date_to_str à user_filters si absents."""
+    from sqlalchemy import text
+    for col in ('date_from_str', 'date_to_str'):
+        try:
+            with app.app_context():
+                with db.engine.connect() as conn:
+                    uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+                    if 'sqlite' in uri:
+                        result = conn.execute(text("PRAGMA table_info(user_filters)"))
+                        col_exists = col in [r[1] for r in result]
+                    else:
+                        result = conn.execute(text(f"""
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name='user_filters' AND column_name='{col}'
+                        """))
+                        col_exists = result.fetchone() is not None
+                    if not col_exists:
+                        conn.execute(text(f"ALTER TABLE user_filters ADD COLUMN {col} VARCHAR(10)"))
+                        conn.commit()
+        except Exception:
+            pass
+
+
 def _migrate_add_history_period_id(app):
     """Ajoute la colonne history_period_id à raw_data si elle n'existe pas (migration)."""
     from sqlalchemy import text
@@ -114,6 +138,7 @@ def init_db(app):
         db.create_all()
         _migrate_add_history_period_id(app)
         _migrate_anomalie_produit(app)
+        _migrate_user_filter_dates(app)
         _migrate_user_anomalie_produits(app)
         _ensure_admin_user()
         _ensure_anomalie_type_config()
@@ -198,12 +223,14 @@ class User(UserMixin, db.Model):
 
 
 class UserFilter(db.Model):
-    """Filtres dashboard par utilisateur (machines, personnes)."""
+    """Filtres dashboard par utilisateur (machines, personnes, dates)."""
     __tablename__ = 'user_filters'
     
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), primary_key=True)
     machines_json = db.Column(db.Text, default='[]')  # JSON array
     personnes_json = db.Column(db.Text, default='[]')
+    date_from_str = db.Column(db.String(10), nullable=True)  # ISO YYYY-MM-DD
+    date_to_str = db.Column(db.String(10), nullable=True)    # ISO YYYY-MM-DD
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

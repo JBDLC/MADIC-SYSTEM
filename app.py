@@ -228,7 +228,18 @@ def reset_data():
         flash('Données réinitialisées. Vous pouvez réimporter votre fichier Excel (les dates seront correctement interprétées en jj/mm/aaaa).', 'success')
     except Exception as e:
         flash(f'Erreur : {str(e)}', 'error')
-    return redirect(url_for('index'))
+    return redirect(url_for('gestion_imports'))
+
+
+def _parse_date(s):
+    """Parse une date ISO ou None."""
+    if not s or not str(s).strip():
+        return None
+    try:
+        from datetime import datetime
+        return datetime.strptime(str(s).strip()[:10], '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return None
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -237,35 +248,66 @@ def index():
     """Page d'accueil / Dashboard. Filtres persistants par utilisateur."""
     machine_filter = None
     person_filter = None
+    date_from = date_to = None
     uf = UserFilter.query.get(current_user.id)
     if request.method == 'POST':
         machine_filter = request.form.getlist('machines')
         person_filter = request.form.getlist('personnes')
+        date_from_str = (request.form.get('date_from') or '').strip() or None
+        date_to_str = (request.form.get('date_to') or '').strip() or None
+        # Préserver dates si form filter seul (sans champs date)
+        if not date_from_str and not date_to_str and uf:
+            date_from_str = uf.date_from_str
+            date_to_str = uf.date_to_str
+        # Préserver machines/personnes si form date seul (sans ces champs)
+        if not machine_filter and uf:
+            try:
+                machine_filter = json.loads(uf.machines_json or '[]')
+            except (json.JSONDecodeError, TypeError):
+                machine_filter = []
+        if not person_filter and uf:
+            try:
+                person_filter = json.loads(uf.personnes_json or '[]')
+            except (json.JSONDecodeError, TypeError):
+                person_filter = []
         if uf is None:
             uf = UserFilter(user_id=current_user.id)
             db.session.add(uf)
         uf.machines_json = json.dumps(machine_filter)
         uf.personnes_json = json.dumps(person_filter)
+        uf.date_from_str = date_from_str[:10] if date_from_str else None
+        uf.date_to_str = date_to_str[:10] if date_to_str else None
         db.session.commit()
         return redirect(url_for('index'))
     if request.args.get('clear_filter'):
         if uf:
             uf.machines_json = '[]'
             uf.personnes_json = '[]'
+            uf.date_from_str = None
+            uf.date_to_str = None
             db.session.commit()
         return redirect(url_for('index'))
-    if uf and (uf.machines_json or uf.personnes_json):
+    if request.args.get('clear_dates'):
+        if uf:
+            uf.date_from_str = None
+            uf.date_to_str = None
+            db.session.commit()
+        return redirect(url_for('index'))
+    if uf:
         try:
             machine_filter = json.loads(uf.machines_json or '[]')
             person_filter = json.loads(uf.personnes_json or '[]')
         except (json.JSONDecodeError, TypeError):
             machine_filter = person_filter = []
+        date_from = _parse_date(uf.date_from_str)
+        date_to = _parse_date(uf.date_to_str)
     stats = get_stats(machine_filter=machine_filter if machine_filter else None,
                      person_filter=person_filter if person_filter else None,
-                     user_id=current_user.id if current_user.is_authenticated else None)
+                     user_id=current_user.id if current_user.is_authenticated else None,
+                     date_from=date_from, date_to=date_to)
     all_machines = get_all_machines_for_filter()
     all_personnes = get_all_personnes_for_filter()
-    has_filter = bool(machine_filter or person_filter)
+    has_filter = bool(machine_filter or person_filter or date_from or date_to)
     can_import = current_user.role != 'visualisation'
     return render_template('index.html',
         stats=stats,
@@ -273,6 +315,8 @@ def index():
         all_personnes=all_personnes,
         selected_machines=set(machine_filter or []),
         selected_personnes=set(person_filter or []),
+        date_from_str=uf.date_from_str if uf else '',
+        date_to_str=uf.date_to_str if uf else '',
         has_filter=has_filter,
         can_import=can_import)
 
@@ -293,7 +337,7 @@ def _do_import(filepath, filename):
 def importer_excel():
     """Import d'un fichier Excel (upload ou chemin)."""
     if request.method == 'GET':
-        return redirect(url_for('index'))
+        return redirect(url_for('gestion_imports'))
     
     # Option 1: Import par chemin (contourne les blocages upload)
     path_from_form = (request.form.get('filepath') or '').strip()
@@ -312,27 +356,27 @@ def importer_excel():
                     flash(f'Toutes les lignes ({nb_skipped}) étaient déjà présentes.', 'warning')
                 else:
                     flash('Aucune donnée valide trouvée.', 'warning')
-                return redirect(url_for('index'))
+                return redirect(url_for('gestion_imports'))
             except Exception as e:
                 flash(f'Erreur : {str(e)}', 'error')
-                return redirect(url_for('index'))
+                return redirect(url_for('gestion_imports'))
         else:
             flash('Format non autorisé. Utilisez .xlsx ou .xls', 'error')
-            return redirect(url_for('index'))
+            return redirect(url_for('gestion_imports'))
     
     # Option 2: Upload classique
     if 'file' not in request.files:
         flash('Aucun fichier. Glissez-déposez ou collez le chemin complet du fichier.', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('gestion_imports'))
     
     file = request.files['file']
     if file.filename == '':
         flash('Aucun fichier sélectionné.', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('gestion_imports'))
     
     if not allowed_file(file.filename):
         flash('Format non autorisé. Utilisez .xlsx ou .xls', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('gestion_imports'))
     
     filename = safe_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -340,7 +384,7 @@ def importer_excel():
         file.save(filepath)
     except Exception as e:
         flash(f'Impossible de sauvegarder le fichier (antivirus?). Collez le chemin dans le champ ci-dessous : {e}', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('gestion_imports'))
     
     try:
         nb_imported, nb_skipped, date_min, date_max = _do_import(filepath, filename)
@@ -363,7 +407,7 @@ def importer_excel():
             except Exception:
                 pass
     
-    return redirect(url_for('index'))
+    return redirect(url_for('gestion_imports'))
 
 
 @app.route('/download-template')

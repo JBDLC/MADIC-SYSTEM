@@ -25,15 +25,20 @@ def _date_filter(query, model, date_from=None, date_to=None):
     return query
 
 
-def get_stats(machine_filter=None, person_filter=None, user_id=None):
+def get_stats(machine_filter=None, person_filter=None, user_id=None, date_from=None, date_to=None):
     """
     Retourne les statistiques pour le dashboard.
-    machine_filter: liste optionnelle de parcs à inclure (ex: ['Parc1','Parc2']). Si None, toutes.
-    person_filter: liste optionnelle de noms de personnes à inclure. Si None, toutes.
-    user_id: id utilisateur pour le décompte des anomalies (config par compte).
+    machine_filter: liste optionnelle de parcs à inclure.
+    person_filter: liste optionnelle de noms de personnes à inclure.
+    user_id: id utilisateur pour le décompte des anomalies.
+    date_from, date_to: filtre calendrier optionnel pour total carburant et anomalies.
     """
-    total_carburant = db.session.query(db.func.sum(RawData.quantite)).scalar() or 0
+    # Total carburant et anomalies : filtre dates appliqué
+    q_total = db.session.query(db.func.sum(RawData.quantite))
+    q_total = _date_filter(q_total, RawData, date_from, date_to)
+    total_carburant = q_total.scalar() or 0
     
+    # Machines et personnes : sans filtre dates (toutes les données)
     q_mach = db.session.query(
         RawData.parc, db.func.sum(RawData.quantite).label('total')
     ).group_by(RawData.parc).order_by(db.desc('total'))
@@ -48,8 +53,9 @@ def get_stats(machine_filter=None, person_filter=None, user_id=None):
         q_pers = q_pers.filter(RawData.personne.in_(person_filter))
     top_personnes = q_pers.all()
     
-    filter_cond = get_anomalie_filter_conditions(user_id, for_include_in_count=True)
-    nb_anomalies = Anomalie.query.filter(filter_cond).count()
+    q_anom = Anomalie.query.filter(get_anomalie_filter_conditions(user_id, for_include_in_count=True))
+    q_anom = _date_filter(q_anom, Anomalie, date_from, date_to)
+    nb_anomalies = q_anom.count()
     
     return {
         'total_carburant': total_carburant,
