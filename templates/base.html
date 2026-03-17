@@ -261,6 +261,7 @@
                         {{ current_user.username }} ▼
                     </button>
                     <div id="user-menu" class="nav-user-menu">
+                        <a href="{{ url_for('mes_preferences') }}">Mes préférences</a>
                         <a href="{{ url_for('change_password') }}">Changer mot de passe</a>
                         {% if current_user.role == 'admin' %}
                         <a href="{{ url_for('parametrage') }}">Paramétrage</a>

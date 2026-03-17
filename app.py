@@ -14,10 +14,10 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import UPLOAD_FOLDER
-from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, get_user_anomalie_configs
 from excel_importer import import_excel
 from processor import process_all_machines
-from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_machine_detail, get_person_detail
+from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_all_produits_for_filter, get_machine_detail, get_person_detail
 from indicators import get_indicator_data, get_available_values
 
 app = Flask(__name__)
@@ -114,6 +114,35 @@ def parametrage():
     return render_template('parametrage.html', users=users)
 
 
+@app.route('/mes-preferences')
+@login_required
+def mes_preferences():
+    """Configuration des anomalies propre au compte (tous les utilisateurs)."""
+    anomalie_configs = get_user_anomalie_configs(current_user.id)
+    all_produits = get_all_produits_for_filter()
+    return render_template('mes_preferences.html', anomalie_configs=anomalie_configs, all_produits=all_produits)
+
+
+@app.route('/mes-preferences/anomalie-types', methods=['POST'])
+@login_required
+def update_user_anomalie_types():
+    """Met à jour la configuration des anomalies du compte courant."""
+    import json
+    from database import ensure_user_anomalie_config
+    ensure_user_anomalie_config(current_user.id)
+    configs = UserAnomalieConfig.query.filter_by(user_id=current_user.id).all()
+    for cfg in configs:
+        enabled = request.form.get(f'cfg_{cfg.type_key}_enabled') == 'on'
+        include = request.form.get(f'cfg_{cfg.type_key}_include') == 'on'
+        produits = request.form.getlist(f'cfg_{cfg.type_key}_produits')
+        cfg.enabled = enabled
+        cfg.include_in_count = include
+        cfg.produits_json = json.dumps([p for p in produits if p]) if produits else '[]'
+    db.session.commit()
+    flash('Vos préférences d\'anomalies ont été enregistrées. Elles restent figées jusqu\'à ce que vous les modifiez.', 'success')
+    return redirect(url_for('mes_preferences'))
+
+
 @app.route('/parametrage/create-user', methods=['POST'])
 @login_required
 @admin_required
@@ -207,7 +236,8 @@ def index():
         except (json.JSONDecodeError, TypeError):
             machine_filter = person_filter = []
     stats = get_stats(machine_filter=machine_filter if machine_filter else None,
-                     person_filter=person_filter if person_filter else None)
+                     person_filter=person_filter if person_filter else None,
+                     user_id=current_user.id if current_user.is_authenticated else None)
     all_machines = get_all_machines_for_filter()
     all_personnes = get_all_personnes_for_filter()
     has_filter = bool(machine_filter or person_filter)
@@ -429,7 +459,7 @@ def api_indicateurs_data():
     serie_filter = [v.strip() for v in serie_filter_raw.split(',') if v.strip()] if serie_filter_raw else None
     
     try:
-        data = get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from, date_to, serie_filter)
+        data = get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from, date_to, serie_filter, current_user.id if current_user.is_authenticated else None)
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 400
@@ -500,7 +530,7 @@ def machine_detail():
             date_to = datetime.strptime(dt, '%Y-%m-%d').date()
     except ValueError:
         pass
-    detail = get_machine_detail(parc, date_from, date_to)
+    detail = get_machine_detail(parc, date_from, date_to, current_user.id if current_user.is_authenticated else None)
     detail['by_date_chart'] = [[str(d.dt) if hasattr(d, 'dt') else d[0], float(d.total) if hasattr(d, 'total') else d[1]] for d in (detail.get('by_date') or [])]
     detail['by_personne_chart'] = [[str(p[0]) or '-', float(p[1]) if len(p) > 1 else 0] for p in (detail.get('by_personne') or [])]
     detail['anomalies_json'] = [{'type_anomalie': a.type_anomalie} for a in (detail.get('anomalies') or [])]
@@ -533,7 +563,7 @@ def personne_detail():
             date_to = datetime.strptime(dt, '%Y-%m-%d').date()
     except ValueError:
         pass
-    detail = get_person_detail(nom, date_from, date_to)
+    detail = get_person_detail(nom, date_from, date_to, current_user.id if current_user.is_authenticated else None)
     detail['by_date_chart'] = [[str(d.dt) if hasattr(d, 'dt') else d[0], float(d.total) if hasattr(d, 'total') else d[1]] for d in (detail.get('by_date') or [])]
     detail['by_machine_chart'] = [[str(m[0]) or '-', float(m[1]) if len(m) > 1 else 0] for m in (detail.get('by_machine') or [])]
     detail['anomalies_json'] = [{'type_anomalie': a.type_anomalie} for a in (detail.get('anomalies') or [])]
@@ -589,7 +619,7 @@ def rapports():
     date_to_display = _fmt_display(date_to_s) if date_to_s else ''
     machines = get_consumption_by_machine(date_from, date_to)
     personnes = get_consumption_by_person(date_from, date_to)
-    anomalies = get_anomalies_detail(date_from, date_to)
+    anomalies = get_anomalies_detail(date_from, date_to, current_user.id if current_user.is_authenticated else None)
     return render_template('rapports.html',
         machines=machines, personnes=personnes, anomalies=anomalies,
         date_from=date_from_s, date_to=date_to_s,
@@ -619,9 +649,9 @@ def download_report(format):
     
     try:
         if format == 'pdf':
-            filepath = generate_pdf(date_from, date_to)
+            filepath = generate_pdf(date_from, date_to, current_user.id if current_user.is_authenticated else None)
         else:
-            filepath = generate_excel(date_from, date_to)
+            filepath = generate_excel(date_from, date_to, current_user.id if current_user.is_authenticated else None)
         
         return send_file(filepath, as_attachment=True, download_name=os.path.basename(filepath))
     except Exception as e:

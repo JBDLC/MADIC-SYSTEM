@@ -3,7 +3,7 @@
 from datetime import datetime, date
 from collections import defaultdict
 
-from database import db, RawData, Anomalie
+from database import db, RawData, Anomalie, get_anomalie_filter_conditions
 
 
 def _date_filter(query, model, date_from=None, date_to=None):
@@ -40,7 +40,7 @@ def _truncate_date(dt, group_by):
     return d.isoformat()
 
 
-def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=None, date_to=None, serie_filter=None):
+def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=None, date_to=None, serie_filter=None, user_id=None):
     """
     Retourne les données agrégées pour le graphique.
     
@@ -166,10 +166,13 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
             if ym.get('agg') == 'avg' and mid in vals and c > 0:
                 vals[mid] = vals[mid] / c
     
-    # Anomalies
+    # Anomalies (filtrées selon la config de l'utilisateur, incl. produits)
     if any(m.get('metric') == 'nb_anomalies' for m in y_metrics):
         q = Anomalie.query
         q = _date_filter(q, Anomalie, date_from, date_to)
+        if user_id:
+            filter_cond = get_anomalie_filter_conditions(user_id, for_include_in_count=True)
+            q = q.filter(filter_cond)
         anomalies = q.all()
         
         for a in anomalies:

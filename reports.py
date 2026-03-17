@@ -8,7 +8,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.units import cm
-from database import db, RawData, Anomalie
+from database import db, RawData, Anomalie, get_anomalie_filter_conditions
 from sqlalchemy import func
 
 
@@ -25,11 +25,12 @@ def _date_filter(query, model, date_from=None, date_to=None):
     return query
 
 
-def get_stats(machine_filter=None, person_filter=None):
+def get_stats(machine_filter=None, person_filter=None, user_id=None):
     """
     Retourne les statistiques pour le dashboard.
     machine_filter: liste optionnelle de parcs à inclure (ex: ['Parc1','Parc2']). Si None, toutes.
     person_filter: liste optionnelle de noms de personnes à inclure. Si None, toutes.
+    user_id: id utilisateur pour le décompte des anomalies (config par compte).
     """
     total_carburant = db.session.query(db.func.sum(RawData.quantite)).scalar() or 0
     
@@ -47,7 +48,8 @@ def get_stats(machine_filter=None, person_filter=None):
         q_pers = q_pers.filter(RawData.personne.in_(person_filter))
     top_personnes = q_pers.all()
     
-    nb_anomalies = Anomalie.query.count()
+    filter_cond = get_anomalie_filter_conditions(user_id, for_include_in_count=True)
+    nb_anomalies = Anomalie.query.filter(filter_cond).count()
     
     return {
         'total_carburant': total_carburant,
@@ -67,6 +69,12 @@ def get_all_personnes_for_filter():
     """Retourne la liste de toutes les personnes (pour le filtre du dashboard)."""
     rows = db.session.query(RawData.personne).distinct().filter(RawData.personne != '').order_by(RawData.personne).all()
     return [r[0] or '(vide)' for r in rows]
+
+
+def get_all_produits_for_filter():
+    """Retourne la liste de tous les produits (pour la config anomalies par produit)."""
+    rows = db.session.query(RawData.produit).distinct().filter(RawData.produit != '').filter(RawData.produit.isnot(None)).order_by(RawData.produit).all()
+    return [r[0] for r in rows if r[0]]
 
 
 def get_consumption_by_machine(date_from=None, date_to=None):
@@ -91,15 +99,18 @@ def get_consumption_by_person(date_from=None, date_to=None):
     return q.group_by(RawData.personne).order_by(db.desc('quantite_totale')).all()
 
 
-def get_anomalies_detail(date_from=None, date_to=None):
-    """Tableau détaillé des anomalies (optionnel: filtre par dates)."""
+def get_anomalies_detail(date_from=None, date_to=None, user_id=None):
+    """Tableau détaillé des anomalies (optionnel: filtre par dates, par config user)."""
     q = Anomalie.query
     q = _date_filter(q, Anomalie, date_from, date_to)
+    if user_id:
+        filter_cond = get_anomalie_filter_conditions(user_id, for_include_in_count=False)
+        q = q.filter(filter_cond)
     return q.order_by(Anomalie.date.desc()).all()
 
 
-def get_machine_detail(parc, date_from=None, date_to=None):
-    """Données détaillées pour une machine (parc)."""
+def get_machine_detail(parc, date_from=None, date_to=None, user_id=None):
+    """Données détaillées pour une machine (parc). Les anomalies sont filtrées selon la config user."""
     q = db.session.query(
         RawData.date_heure,
         RawData.personne,
@@ -127,6 +138,9 @@ def get_machine_detail(parc, date_from=None, date_to=None):
     
     q4 = Anomalie.query.filter(Anomalie.machine == parc)
     q4 = _date_filter(q4, Anomalie, date_from, date_to)
+    if user_id:
+        filter_cond = get_anomalie_filter_conditions(user_id, for_include_in_count=False)
+        q4 = q4.filter(filter_cond)
     anomalies = q4.order_by(Anomalie.date.desc()).all()
     
     q5 = db.session.query(
@@ -146,8 +160,8 @@ def get_machine_detail(parc, date_from=None, date_to=None):
     }
 
 
-def get_person_detail(personne, date_from=None, date_to=None):
-    """Données détaillées pour une personne."""
+def get_person_detail(personne, date_from=None, date_to=None, user_id=None):
+    """Données détaillées pour une personne. Les anomalies sont filtrées selon la config user."""
     q = db.session.query(
         RawData.date_heure,
         RawData.parc,
@@ -175,6 +189,9 @@ def get_person_detail(personne, date_from=None, date_to=None):
     
     q4 = Anomalie.query.filter(Anomalie.personne == personne)
     q4 = _date_filter(q4, Anomalie, date_from, date_to)
+    if user_id:
+        filter_cond = get_anomalie_filter_conditions(user_id, for_include_in_count=False)
+        q4 = q4.filter(filter_cond)
     anomalies = q4.order_by(Anomalie.date.desc()).all()
     
     q5 = db.session.query(
@@ -218,8 +235,8 @@ def get_date_range():
         return (None, None)
 
 
-def generate_pdf(date_from=None, date_to=None):
-    """Génère un rapport PDF et retourne le chemin du fichier (optionnel: filtre par dates)."""
+def generate_pdf(date_from=None, date_to=None, user_id=None):
+    """Génère un rapport PDF (optionnel: filtre par dates, anomalies selon config user)."""
     folder = current_app.config['REPORTS_FOLDER']
     filename = f"rapport_madic_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     filepath = os.path.join(folder, filename)
@@ -291,7 +308,7 @@ def generate_pdf(date_from=None, date_to=None):
     story.append(Paragraph("3. Anomalies détectées", styles['Heading2']))
     story.append(Spacer(1, 12))
     
-    anomalies = get_anomalies_detail(date_from, date_to)
+    anomalies = get_anomalies_detail(date_from, date_to, user_id)
     if anomalies:
         data_anom = [['Machine', 'Type', 'Date', 'Personne', 'Compteur avant', 'Compteur après', 'Détails']]
         for a in anomalies[:50]:  # Limiter à 50 pour le PDF
@@ -320,8 +337,8 @@ def generate_pdf(date_from=None, date_to=None):
     return filepath
 
 
-def generate_excel(date_from=None, date_to=None):
-    """Génère un rapport Excel et retourne le chemin du fichier (optionnel: filtre par dates)."""
+def generate_excel(date_from=None, date_to=None, user_id=None):
+    """Génère un rapport Excel (optionnel: filtre par dates, anomalies selon config user)."""
     import pandas as pd
     
     folder = current_app.config['REPORTS_FOLDER']
@@ -340,7 +357,7 @@ def generate_excel(date_from=None, date_to=None):
         pd.DataFrame(pers_data).to_excel(writer, sheet_name='Par personne', index=False)
         
         # Anomalies
-        anom = get_anomalies_detail(date_from, date_to)
+        anom = get_anomalies_detail(date_from, date_to, user_id)
         if anom:
             df_anom = pd.DataFrame([{
                 'Machine': a.machine, 'Type': a.type_anomalie,

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Mes préférences</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Retour</a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, msg in messages %}
+            <div class="alert alert-{{ category if category in ['success','error'] else 'success' }}">{{ msg }}</div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card">
+    <h2>Configuration des anomalies</h2>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+        Cette configuration est <strong>propre à votre compte</strong> et reste figée jusqu'à ce que vous la modifiez.<br>
+        « Prendre en compte » : affiche ce type dans les rapports, détails machine/personne.<br>
+        « Inclure dans le décompte » : compte ce type dans le total affiché sur le dashboard.<br>
+        <strong>Produits</strong> : choisissez pour quels produits l'alarme s'applique. Vide = tous les produits.
+    </p>
+    <form method="post" action="{{ url_for('update_user_anomalie_types') }}">
+        <table>
+            <thead>
+                <tr>
+                    <th>Type d'anomalie</th>
+                    <th style="text-align: center;">Prendre en compte</th>
+                    <th style="text-align: center;">Inclure dans le décompte</th>
+                    <th>Produits concernés</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in anomalie_configs %}
+                <tr>
+                    <td>{{ c.label }}</td>
+                    <td style="text-align: center;">
+                        <input type="checkbox" name="cfg_{{ c.type_key }}_enabled" {% if c.enabled %}checked{% endif %}>
+                    </td>
+                    <td style="text-align: center;">
+                        <input type="checkbox" name="cfg_{{ c.type_key }}_include" {% if c.include_in_count %}checked{% endif %}>
+                    </td>
+                    <td>
+                        <select name="cfg_{{ c.type_key }}_produits" multiple size="3" style="min-width: 180px; padding: 4px;">
+                            {% for p in all_produits %}
+                            <option value="{{ p }}" {% if p in c.produits %}selected{% endif %}>{{ p }}</option>
+                            {% endfor %}
+                            {% if not all_produits %}
+                            <option disabled>Aucun produit importé</option>
+                            {% endif %}
+                        </select>
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">Ctrl+clic pour plusieurs</span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <button type="submit" class="btn btn-primary" style="margin-top: 16px;">Enregistrer mes préférences</button>
+    </form>
+</div>
+{% endblock %}

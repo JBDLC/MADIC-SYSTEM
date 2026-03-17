@@ -58,6 +58,7 @@ def _process_machine(parc):
             date=row.date_heure,
             prev_date=prev_date,
             personne=row.personne,
+            produit=row.produit,
             compteur_before=compteur_before,
             compteur_after=compteur_after,
             quantite_before=quantite_before,
@@ -70,16 +71,16 @@ def _process_machine(parc):
         prev = row
 
 
-def _detect_anomalies(parc, date, prev_date, personne, 
-                      compteur_before, compteur_after, 
-                      quantite_before, quantite_after, diff_compteur=0):
-    """Détecte les anomalies pour une ligne."""
+def _detect_anomalies(parc, date, prev_date, personne, produit=None,
+                      compteur_before=0, compteur_after=0, 
+                      quantite_before=0, quantite_after=0, diff_compteur=0):
+    """Détecte les anomalies pour une ligne. Tous les types sont stockés; le filtrage par user se fait à l'affichage."""
     anomalies = []
     
     # 1. Zero quantity
     if quantite_after == 0:
         anomalies.append(Anomalie(
-            machine=parc, type_anomalie='Zero quantity', date=date, prev_date=prev_date,
+            machine=parc, type_anomalie='Zero quantity', produit=produit, date=date, prev_date=prev_date,
             personne=personne, compteur_before=compteur_before, compteur_after=compteur_after,
             quantite_before=quantite_before, quantite_after=quantite_after,
             details='Quantité égale à 0'
@@ -88,7 +89,7 @@ def _detect_anomalies(parc, date, prev_date, personne,
     # 2. Compteur decreased
     if prev_date is not None and compteur_after < compteur_before:
         anomalies.append(Anomalie(
-            machine=parc, type_anomalie='Compteur decreased', date=date, prev_date=prev_date,
+            machine=parc, type_anomalie='Compteur decreased', produit=produit, date=date, prev_date=prev_date,
             personne=personne, compteur_before=compteur_before, compteur_after=compteur_after,
             quantite_before=quantite_before, quantite_after=quantite_after,
             details=f'Compteur a baissé de {compteur_before} à {compteur_after}'
@@ -97,7 +98,7 @@ def _detect_anomalies(parc, date, prev_date, personne,
     # 3. Jump > MAX_COUNTER_JUMP
     if prev_date is not None and diff_compteur > MAX_COUNTER_JUMP:
         anomalies.append(Anomalie(
-            machine=parc, type_anomalie=f'Jump >{MAX_COUNTER_JUMP}', date=date, prev_date=prev_date,
+            machine=parc, type_anomalie=f'Jump >{MAX_COUNTER_JUMP}', produit=produit, date=date, prev_date=prev_date,
             personne=personne, compteur_before=compteur_before, compteur_after=compteur_after,
             quantite_before=quantite_before, quantite_after=quantite_after,
             details=f'Saut de {diff_compteur} km (seuil: {MAX_COUNTER_JUMP})'
@@ -106,7 +107,7 @@ def _detect_anomalies(parc, date, prev_date, personne,
     # 4. Compteur == 0
     if compteur_after == 0:
         anomalies.append(Anomalie(
-            machine=parc, type_anomalie='Compteur zero', date=date, prev_date=prev_date,
+            machine=parc, type_anomalie='Compteur zero', produit=produit, date=date, prev_date=prev_date,
             personne=personne, compteur_before=compteur_before, compteur_after=compteur_after,
             quantite_before=quantite_before, quantite_after=quantite_after,
             details='Compteur à 0'
@@ -115,7 +116,7 @@ def _detect_anomalies(parc, date, prev_date, personne,
     # 5. Compteur identique malgré un plein (quantité > 0 mais diff = 0)
     if prev_date is not None and quantite_after > 0 and diff_compteur == 0:
         anomalies.append(Anomalie(
-            machine=parc, type_anomalie='Compteur identique malgré plein', date=date, prev_date=prev_date,
+            machine=parc, type_anomalie='Compteur identique malgré plein', produit=produit, date=date, prev_date=prev_date,
             personne=personne, compteur_before=compteur_before, compteur_after=compteur_after,
             quantite_before=quantite_before, quantite_after=quantite_after,
             details=f'Quantité {quantite_after} mais compteur inchangé'
