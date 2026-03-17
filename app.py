@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import UPLOAD_FOLDER
-from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, get_user_anomalie_configs
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold
 from excel_importer import import_excel
 from processor import process_all_machines
 from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_all_produits_for_filter, get_machine_detail, get_person_detail
@@ -120,7 +120,8 @@ def mes_preferences():
     """Configuration des anomalies propre au compte (tous les utilisateurs)."""
     anomalie_configs = get_user_anomalie_configs(current_user.id)
     all_produits = get_all_produits_for_filter()
-    return render_template('mes_preferences.html', anomalie_configs=anomalie_configs, all_produits=all_produits)
+    jump_threshold = get_jump_threshold()
+    return render_template('mes_preferences.html', anomalie_configs=anomalie_configs, all_produits=all_produits, jump_threshold=jump_threshold)
 
 
 @app.route('/mes-preferences/anomalie-types', methods=['POST'])
@@ -129,6 +130,7 @@ def update_user_anomalie_types():
     """Met à jour la configuration des anomalies du compte courant."""
     import json
     from database import ensure_user_anomalie_config
+    from processor import process_all_machines
     ensure_user_anomalie_config(current_user.id)
     configs = UserAnomalieConfig.query.filter_by(user_id=current_user.id).all()
     for cfg in configs:
@@ -138,9 +140,25 @@ def update_user_anomalie_types():
         cfg.enabled = enabled
         cfg.include_in_count = include
         cfg.produits_json = json.dumps([p for p in produits if p]) if produits else '[]'
+    # Seuil saut compteur (global)
+    try:
+        new_threshold = int(request.form.get('jump_threshold') or 0)
+    except (ValueError, TypeError):
+        new_threshold = get_jump_threshold()
+    old_threshold = get_jump_threshold()
+    threshold_changed = new_threshold != old_threshold
+    if new_threshold >= 1:
+        set_jump_threshold(new_threshold)
     db.session.commit()
-    flash('Vos préférences d\'anomalies ont été enregistrées. Elles restent figées jusqu\'à ce que vous les modifiez.', 'success')
-    return redirect(url_for('mes_preferences'))
+    if threshold_changed and new_threshold >= 1:
+        try:
+            process_all_machines()
+            flash('Préférences enregistrées. Le seuil de saut a changé : les anomalies ont été recalculées.', 'success')
+        except Exception as e:
+            flash(f'Préférences enregistrées mais erreur au recalcul : {str(e)}', 'error')
+    else:
+        flash('Vos préférences ont été enregistrées. Le décompte est à jour sur le dashboard.', 'success')
+    return redirect(url_for('index'))
 
 
 @app.route('/parametrage/create-user', methods=['POST'])

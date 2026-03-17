@@ -24,6 +24,11 @@
         <strong>Produits</strong> : choisissez pour quels produits l'alarme s'applique. Vide = tous les produits.
     </p>
     <form method="post" action="{{ url_for('update_user_anomalie_types') }}">
+        <div style="margin-bottom: 20px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
+            <label for="jump_threshold" style="font-weight: 600; margin-right: 8px;">Seuil saut compteur (km)</label>
+            <input type="number" id="jump_threshold" name="jump_threshold" value="{{ jump_threshold }}" min="1" step="1" style="width: 80px; padding: 6px;">
+            <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 8px;">À partir de ce saut (km) entre deux relevés, une anomalie est créée. S'applique à tous. Si modifié, les anomalies sont recalculées.</span>
+        </div>
         <table>
             <thead>
                 <tr>

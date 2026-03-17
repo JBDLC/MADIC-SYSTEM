@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """Traitement des données et détection des anomalies."""
 from datetime import datetime
-from database import db, RawData, ProcessedData, Anomalie
-from config import MAX_COUNTER_JUMP
+from database import db, RawData, ProcessedData, Anomalie, get_jump_threshold
 
 
 def process_all_machines():
@@ -95,13 +94,14 @@ def _detect_anomalies(parc, date, prev_date, personne, produit=None,
             details=f'Compteur a baissé de {compteur_before} à {compteur_after}'
         ))
     
-    # 3. Jump > MAX_COUNTER_JUMP
-    if prev_date is not None and diff_compteur > MAX_COUNTER_JUMP:
+    # 3. Jump > seuil
+    threshold = get_jump_threshold()
+    if prev_date is not None and diff_compteur > threshold:
         anomalies.append(Anomalie(
-            machine=parc, type_anomalie=f'Jump >{MAX_COUNTER_JUMP}', produit=produit, date=date, prev_date=prev_date,
+            machine=parc, type_anomalie=f'Jump >{threshold}', produit=produit, date=date, prev_date=prev_date,
             personne=personne, compteur_before=compteur_before, compteur_after=compteur_after,
             quantite_before=quantite_before, quantite_after=quantite_after,
-            details=f'Saut de {diff_compteur} km (seuil: {MAX_COUNTER_JUMP})'
+            details=f'Saut de {diff_compteur} km (seuil: {threshold})'
         ))
     
     # 4. Compteur == 0

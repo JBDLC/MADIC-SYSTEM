@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
-from config import DATABASE_URL, DATABASE_PATH, UPLOAD_FOLDER, REPORTS_FOLDER
+from config import DATABASE_URL, DATABASE_PATH, UPLOAD_FOLDER, REPORTS_FOLDER, MAX_COUNTER_JUMP
 
 # Créer les dossiers si nécessaire
 for folder in [UPLOAD_FOLDER, REPORTS_FOLDER]:
@@ -362,6 +362,44 @@ def get_anomalie_types_enabled(user_id):
         user_id=user_id, enabled=True
     ).with_entities(UserAnomalieConfig.type_key).all()
     return {r[0] for r in rows}
+
+
+class SystemConfig(db.Model):
+    """Paramètres globaux de l'application (seuil saut compteur, etc.)."""
+    __tablename__ = 'system_config'
+    
+    key = db.Column(db.String(80), primary_key=True)
+    value = db.Column(db.String(255), nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+def get_jump_threshold():
+    """Retourne le seuil de saut compteur (km) pour la détection. Par défaut MAX_COUNTER_JUMP."""
+    try:
+        row = SystemConfig.query.filter_by(key='jump_threshold').first()
+        if row and row.value:
+            return int(row.value)
+    except (ValueError, TypeError):
+        pass
+    return MAX_COUNTER_JUMP
+
+
+def set_jump_threshold(value):
+    """Enregistre le seuil de saut compteur."""
+    try:
+        v = int(value)
+        if v < 1:
+            v = 1
+    except (ValueError, TypeError):
+        v = MAX_COUNTER_JUMP
+    row = SystemConfig.query.filter_by(key='jump_threshold').first()
+    if row:
+        row.value = str(v)
+    else:
+        row = SystemConfig(key='jump_threshold', value=str(v))
+        db.session.add(row)
+    db.session.commit()
+    return v
 
 
 class HistoryPeriod(db.Model):
