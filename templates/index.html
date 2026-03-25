@@ -32,7 +32,7 @@
         {% if date_from_str or date_to_str %}
         <a href="{{ url_for('index', clear_dates=1) }}" class="btn btn-secondary" style="padding: 6px 14px;">Effacer la période</a>
         {% endif %}
-        <span style="font-size: 0.85rem; color: var(--text-muted);">Filtre le total carburant, les listes machines / personnes ci‑dessous et les anomalies (mêmes règles que le filtre avancé).</span>
+        <span style="font-size: 0.85rem; color: var(--text-muted);">S’applique au total carburant et au nombre d’anomalies. Les listes machines / personnes utilisent le filtre avancé (affichage uniquement).</span>
     </form>
 </div>
 

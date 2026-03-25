@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Génération de rapports PDF et Excel."""
 import os
-from collections import defaultdict, namedtuple
 from datetime import datetime, date
 from flask import current_app
 from reportlab.lib import colors
@@ -11,7 +10,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.units import cm
 from database import db, RawData, Anomalie, get_anomalie_filter_conditions, get_camion_cuve_parcs_set, get_camion_cuve_seuil_litres
 from consumption import effective_quantite_conso_carburant
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 
 def _date_filter(query, model, date_from=None, date_to=None):
@@ -27,66 +26,71 @@ def _date_filter(query, model, date_from=None, date_to=None):
     return query
 
 
+def _person_filter_condition(personne_col, person_filter):
+    """
+    Filtre SQLAlchemy sur la colonne personne.
+    Les listes du dashboard peuvent contenir '(vide)' pour les lignes sans nom.
+    """
+    if not person_filter or len(person_filter) == 0:
+        return None
+    pieces = []
+    noms = []
+    for p in person_filter:
+        if p == '(vide)':
+            pieces.append(or_(personne_col == '', personne_col.is_(None)))
+        else:
+            noms.append(p)
+    if noms:
+        pieces.append(personne_col.in_(noms))
+    if not pieces:
+        return None
+    return or_(*pieces) if len(pieces) > 1 else pieces[0]
+
+
 def get_stats(machine_filter=None, person_filter=None, user_id=None, date_from=None, date_to=None):
     """
     Retourne les statistiques pour le dashboard.
-    machine_filter: liste optionnelle de parcs à inclure.
-    person_filter: liste optionnelle de noms de personnes à inclure.
-    user_id: id utilisateur pour le décompte des anomalies.
-    date_from, date_to: filtre calendrier pour total carburant, listes machines/personnes et anomalies.
-    Les totaux par machine et par personne utilisent les mêmes filtres que le total carburant
-    (période, machines, personnes) et la même règle d'ajustement camion cuve.
+    - Total carburant et nombre d'anomalies : uniquement selon la période (filtre du haut de page).
+    - Listes « machines suivies » / « personnes suivies » : filtres d'affichage (cases à cocher),
+      sur tout l'historique ; elles ne modifient pas le total ni le décompte d'anomalies.
     """
     camions = get_camion_cuve_parcs_set()
     seuil_camion = get_camion_cuve_seuil_litres()
 
-    q_conso = db.session.query(
-        RawData.parc, RawData.quantite, RawData.cuve_num, RawData.personne,
-    )
-    q_conso = _date_filter(q_conso, RawData, date_from, date_to)
-    if machine_filter and len(machine_filter) > 0:
-        q_conso = q_conso.filter(RawData.parc.in_(machine_filter))
-    if person_filter and len(person_filter) > 0:
-        q_conso = q_conso.filter(RawData.personne.in_(person_filter))
-
-    rows = q_conso.all()
-    total_carburant = 0.0
-    by_parc = defaultdict(float)
-    by_personne = defaultdict(float)
-
+    q_total = db.session.query(RawData.parc, RawData.quantite, RawData.cuve_num)
+    q_total = _date_filter(q_total, RawData, date_from, date_to)
+    rows_total = q_total.all()
     if not camions:
-        for r in rows:
-            eff = float(r.quantite or 0)
-            total_carburant += eff
-            by_parc[r.parc or ''] += eff
-            pn = (r.personne or '').strip()
-            if pn:
-                by_personne[pn] += eff
+        total_carburant = sum(float(r.quantite or 0) for r in rows_total)
     else:
-        for r in rows:
-            eff = effective_quantite_conso_carburant(
+        total_carburant = sum(
+            effective_quantite_conso_carburant(
                 r.parc, r.quantite, r.cuve_num, camions, seuil_camion)
-            total_carburant += eff
-            by_parc[r.parc or ''] += eff
-            pn = (r.personne or '').strip()
-            if pn:
-                by_personne[pn] += eff
+            for r in rows_total
+        )
 
-    MachTot = namedtuple('MachTot', ['parc', 'total'])
-    PersTot = namedtuple('PersTot', ['personne', 'total'])
-    top_machines = [
-        MachTot(parc=(p if p else '(non renseigné)'), total=t)
-        for p, t in sorted(by_parc.items(), key=lambda x: -x[1])
-    ]
-    top_personnes = [
-        PersTot(personne=p, total=t)
-        for p, t in sorted(by_personne.items(), key=lambda x: -x[1])
-    ]
-    
+    # Machines suivies : toutes les données (pas de filtre période), filtre machines = affichage
+    q_mach = db.session.query(
+        RawData.parc, db.func.sum(RawData.quantite).label('total')
+    ).group_by(RawData.parc).order_by(db.desc('total'))
+    if machine_filter and len(machine_filter) > 0:
+        q_mach = q_mach.filter(RawData.parc.in_(machine_filter))
+    top_machines = q_mach.all()
+
+    # Personnes suivies : idem, filtre personnes = affichage
+    q_pers = db.session.query(
+        RawData.personne, db.func.sum(RawData.quantite).label('total')
+    ).filter(RawData.personne != '').group_by(RawData.personne).order_by(db.desc('total'))
+    if person_filter and len(person_filter) > 0:
+        pcond = _person_filter_condition(RawData.personne, person_filter)
+        if pcond is not None:
+            q_pers = q_pers.filter(pcond)
+    top_personnes = q_pers.all()
+
     q_anom = Anomalie.query.filter(get_anomalie_filter_conditions(user_id, for_include_in_count=True))
     q_anom = _date_filter(q_anom, Anomalie, date_from, date_to)
     nb_anomalies = q_anom.count()
-    
+
     return {
         'total_carburant': total_carburant,
         'top_machines': top_machines,
