@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Cuve — {{ detail.label }}</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">← Retour au Dashboard</a>
+    </div>
+</div>
+
+<form method="get" action="{{ url_for('cuve_detail') }}" class="card" style="margin-bottom: 20px;">
+    <input type="hidden" name="cuve" value="{{ cuve_param }}">
+    <h2>Période</h2>
+    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
+        <label>Du <input type="date" name="date_from" value="{{ request.args.get('date_from', date_min_str) }}"></label>
+        <label>Au <input type="date" name="date_to" value="{{ request.args.get('date_to', date_max_str) }}"></label>
+        <button type="submit" class="btn btn-primary">Filtrer</button>
+        <a href="{{ url_for('cuve_detail', cuve=cuve_param) }}" class="btn btn-secondary">Toute la période</a>
+    </div>
+</form>
+
+<div class="grid" style="margin-bottom: 24px;">
+    <div class="stat-card">
+        <div class="label">Volume total (relevés)</div>
+        <div class="value">{{ "%.2f"|format(detail.stats.total) }} L</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Conso ajustée (règles camion cuve)</div>
+        <div class="value">{{ "%.2f"|format(detail.stats.total_conso_ajustee) }} L</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Nombre de relevés</div>
+        <div class="value">{{ detail.stats.nb }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Anomalies (machines ayant puisé ici)</div>
+        <div class="value" style="color: {% if detail.anomalies %}var(--danger){% else %}var(--success){% endif %};">{{ detail.anomalies|length }}</div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 20px;">
+    <h2 style="margin-top: 0;">Contexte</h2>
+    <p style="margin: 0; font-size: 0.95rem; color: var(--text-muted);">
+        <strong>Site :</strong> {{ detail.site or '—' }}
+        &nbsp;·&nbsp;
+        <strong>Stock roulant :</strong> {% if detail.is_stock_roulant %}oui{% else %}non{% endif %}
+    </p>
+    {% if detail.stats.date_min or detail.stats.date_max %}
+    <p style="margin: 8px 0 0 0; font-size: 0.9rem; color: var(--text-muted);">
+        <strong>Première activité :</strong> {{ detail.stats.date_min.strftime('%d/%m/%Y %H:%M') if detail.stats.date_min else '—' }}
+        &nbsp;·&nbsp;
+        <strong>Dernière activité :</strong> {{ detail.stats.date_max.strftime('%d/%m/%Y %H:%M') if detail.stats.date_max else '—' }}
+    </p>
+    {% endif %}
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+    <h2>Volume dans le temps</h2>
+    <div style="height: 280px; position: relative;">
+        <canvas id="chartDate"></canvas>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    <div class="card">
+        <h2>Par machine (parc)</h2>
+        <div style="height: 260px; position: relative;">
+            <canvas id="chartParc"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <h2>Par personne</h2>
+        <div style="height: 260px; position: relative;">
+            <canvas id="chartPersonne"></canvas>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;">
+    <div class="card">
+        <h2>Par produit</h2>
+        <div style="height: 260px; position: relative;">
+            <canvas id="chartProduit"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <h2>Types d'anomalies</h2>
+        <div style="height: 260px; position: relative;">
+            <canvas id="chartAnomalies"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+    <h2>Anomalies (sur les machines ayant utilisé cette cuve)</h2>
+    {% if detail.anomalies %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Machine</th>
+                <th>Type</th>
+                <th>Personne</th>
+                <th>Détails</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in detail.anomalies[:30] %}
+            <tr>
+                <td>{{ a.date.strftime('%d/%m/%Y %H:%M') if a.date else '-' }}</td>
+                <td>{{ a.machine or '-' }}</td>
+                <td>{{ a.type_anomalie }}</td>
+                <td>{{ a.personne or '-' }}</td>
+                <td>{{ (a.details or '-')[:80] }}{% if a.details and a.details|length > 80 %}…{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if detail.anomalies|length > 30 %}
+    <p style="margin-top: 12px; color: var(--text-muted); font-size: 0.9rem;">… et {{ detail.anomalies|length - 30 }} autres.</p>
+    {% endif %}
+    {% else %}
+    <p style="color: var(--text-muted); padding: 12px;">Aucune anomalie sur cette période pour les machines concernées.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Historique des relevés</h2>
+    {% if detail.releves %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Machine</th>
+                <th>Personne</th>
+                <th>Produit</th>
+                <th>Quantité (L)</th>
+                <th>Compteur</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in detail.releves[-80:]|reverse %}
+            <tr>
+                <td>{{ r.date_heure.strftime('%d/%m/%Y %H:%M') if r.date_heure else '-' }}</td>
+                <td>{{ r.parc or '-' }}</td>
+                <td>{{ r.personne or '-' }}</td>
+                <td>{{ r.produit or '-' }}</td>
+                <td>{{ "%.2f"|format(r.quantite) if r.quantite is not none else '-' }}</td>
+                <td>{{ r.compteur if r.compteur is not none else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if detail.releves|length > 80 %}
+    <p style="margin-top: 12px; color: var(--text-muted); font-size: 0.9rem;">Affichage des 80 derniers relevés sur {{ detail.releves|length }}.</p>
+    {% endif %}
+    {% else %}
+    <p style="color: var(--text-muted); padding: 20px;">Aucun relevé pour cette cuve sur la période.</p>
+    {% endif %}
+</div>
+
+<script>
+(function() {
+    var byDate = {{ detail.by_date_chart|tojson }};
+    var labels = byDate.map(function(d) { return d[0] || ''; });
+    var data = byDate.map(function(d) { return d[1] || 0; });
+    if (labels.length && labels.some(function(l){return l;})) {
+        new Chart(document.getElementById('chartDate'), {
+            type: 'line',
+            data: {
+                labels: labels.map(function(l) { return l && l.length >= 10 ? l.substring(0,7) : l; }),
+                datasets: [{ label: 'Quantité (L)', data: data, borderColor: '#3498db', backgroundColor: 'rgba(52,152,219,0.2)', fill: true, tension: 0.2 }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+    }
+
+    var byP = {{ detail.by_parc_chart|tojson }};
+    if (byP.length) {
+        new Chart(document.getElementById('chartParc'), {
+            type: 'bar',
+            data: {
+                labels: byP.map(function(p) { return (p[0] || '?').substring(0, 18); }),
+                datasets: [{ label: 'L', data: byP.map(function(p) { return p[1] || 0; }), backgroundColor: '#27ae60', borderColor: '#1e8449' }]
+            },
+            options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, scales: { x: { beginAtZero: true } } }
+        });
+    }
+
+    var byPers = {{ detail.by_personne_chart|tojson }};
+    if (byPers.length) {
+        new Chart(document.getElementById('chartPersonne'), {
+            type: 'bar',
+            data: {
+                labels: byPers.map(function(p) { return (p[0] || '?').substring(0, 15); }),
+                datasets: [{ label: 'L', data: byPers.map(function(p) { return p[1] || 0; }), backgroundColor: '#9b59b6', borderColor: '#7d3c98' }]
+            },
+            options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, scales: { x: { beginAtZero: true } } }
+        });
+    }
+
+    var byProd = {{ detail.by_produit_chart|tojson }};
+    if (byProd.length) {
+        new Chart(document.getElementById('chartProduit'), {
+            type: 'bar',
+            data: {
+                labels: byProd.map(function(p) { return (p[0] || '?').substring(0, 14); }),
+                datasets: [{ label: 'L', data: byProd.map(function(p) { return p[1] || 0; }), backgroundColor: '#e67e22', borderColor: '#ca6f1e' }]
+            },
+            options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, scales: { x: { beginAtZero: true } } }
+        });
+    }
+
+    var anomTypes = {};
+    {{ detail.anomalies_json|tojson }}.forEach(function(a) {
+        var t = a.type_anomalie || 'Autre';
+        anomTypes[t] = (anomTypes[t] || 0) + 1;
+    });
+    var anomLabels = Object.keys(anomTypes);
+    var anomData = anomLabels.map(function(k) { return anomTypes[k]; });
+    if (anomLabels.length) {
+        new Chart(document.getElementById('chartAnomalies'), {
+            type: 'doughnut',
+            data: {
+                labels: anomLabels,
+                datasets: [{ data: anomData, backgroundColor: ['#e74c3c','#f39c12','#9b59b6','#3498db','#1abc9c','#34495e'] }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+    }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Camions cuve</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Retour</a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, msg in messages %}
+            <div class="alert alert-{{ category if category in ['success','error','warning'] else 'success' }}">{{ msg }}</div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+{% if not can_import %}
+<p style="color: var(--text-muted); margin-bottom: 20px;">Profil visualisation : consultation uniquement.</p>
+{% endif %}
+
+<div class="card" style="margin-bottom: 24px;">
+    <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px; max-width: 900px;">
+        Pour chaque machine déclarée comme camion cuve, le <strong>seuil (litres)</strong> est défini dans
+        <a href="{{ url_for('mes_preferences') }}">Mes préférences</a>. En dessous de ce seuil, un prélèvement sur une cuve fixe
+        correspond au <strong>ravitaillement du camion pour rouler</strong> : cela compte en consommation carburant.
+        Au-dessus du seuil sur une cuve fixe (hors stock roulant), il s’agit d’un remplissage de la cuve mobile : exclu du total.
+        Un prélèvement sur le <strong>stock roulant</strong> (cuves 4, 5, 9 ou 10) compte toujours en consommation.
+    </p>
+    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">Seuil actuel : <strong>{{ "%.0f"|format(camion_cuve_seuil) }} L</strong></p>
+
+    {% if can_import %}
+    <form method="post" action="{{ url_for('camion_cuve_ajouter') }}" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 20px;">
+        <div>
+            <label for="camion_parc" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px;">Machine</label>
+            <select name="parc" id="camion_parc" required style="min-width: 220px; padding: 8px 10px; border-radius: 6px; border: 1px solid #ddd;">
+                <option value="">— Choisir —</option>
+                {% for parc in all_machines %}
+                <option value="{{ parc }}">{{ parc }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="stock_roulant_num" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px;">Stock roulant lié</label>
+            <select name="stock_roulant_num" id="stock_roulant_num" required style="min-width: 200px; padding: 8px 10px; border-radius: 6px; border: 1px solid #ddd;">
+                {% for n, label in stock_roulant_choices %}
+                <option value="{{ n }}">{{ label }} (cuve {{ n }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary" style="padding: 8px 16px;">Enregistrer comme camion cuve</button>
+    </form>
+    {% endif %}
+
+    {% if camion_cuves %}
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+        <thead>
+            <tr style="text-align: left; border-bottom: 1px solid #e9ecef;">
+                <th style="padding: 8px 0;">Machine</th>
+                <th style="padding: 8px 0;">Stock roulant</th>
+                {% if can_import %}<th style="padding: 8px 0; width: 120px;"></th>{% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for cc in camion_cuves %}
+            <tr style="border-bottom: 1px solid #f0f0f0;">
+                <td style="padding: 8px 0;">{{ cc.parc }}</td>
+                <td style="padding: 8px 0;">Cuve {{ cc.stock_roulant_num }} — {{ CUVE_LABELS.get(cc.stock_roulant_num, cc.stock_roulant_num) }}</td>
+                {% if can_import %}
+                <td style="padding: 8px 0;">
+                    <form method="post" action="{{ url_for('camion_cuve_retirer') }}" style="display: inline;" onsubmit="return confirm('Retirer ce camion cuve ?');">
+                        <input type="hidden" name="parc" value="{{ cc.parc }}">
+                        <button type="submit" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.85rem;">Retirer</button>
+                    </form>
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-muted); font-size: 0.9rem;">Aucun camion cuve enregistré pour l’instant.</p>
+    {% endif %}
+</div>
+{% endblock %}

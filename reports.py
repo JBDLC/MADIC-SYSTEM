@@ -2,6 +2,7 @@
 """Génération de rapports PDF et Excel."""
 import os
 from datetime import datetime, date
+from types import SimpleNamespace
 from flask import current_app
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -10,6 +11,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.units import cm
 from database import db, RawData, Anomalie, get_anomalie_filter_conditions, get_camion_cuve_parcs_set, get_camion_cuve_seuil_litres
 from consumption import effective_quantite_conso_carburant
+from config import format_cuve_label, cuve_num_to_site, STOCK_ROULANT_CUVE_IDS
 from sqlalchemy import func, or_
 
 
@@ -248,6 +250,144 @@ def get_person_detail(personne, date_from=None, date_to=None, user_id=None):
         'by_machine': by_machine,
         'anomalies': anomalies,
         'by_date': by_date,
+    }
+
+
+def _filter_rawdata_by_cuve(query, cuve_num):
+    """Filtre une requête RawData sur le n° de cuve (None = cuve non renseignée)."""
+    if cuve_num is None:
+        return query.filter(RawData.cuve_num.is_(None))
+    return query.filter(RawData.cuve_num == cuve_num)
+
+
+def get_cuves_summary():
+    """Cuves présentes dans les imports : volume total et nb de relevés (tri volume décroissant)."""
+    rows = db.session.query(
+        RawData.cuve_num,
+        db.func.sum(RawData.quantite).label('total'),
+        db.func.count(RawData.id).label('nb'),
+    ).group_by(RawData.cuve_num).order_by(db.desc('total')).all()
+    out = []
+    for row in rows:
+        num = row[0]
+        tot = float(row[1] or 0)
+        nb = int(row[2] or 0)
+        out.append({
+            'cuve_num': num,
+            'label': format_cuve_label(num),
+            'total': tot,
+            'nb': nb,
+        })
+    return out
+
+
+def get_cuve_detail(cuve_num, date_from=None, date_to=None, user_id=None):
+    """
+    Indicateurs pour une cuve (cuve_num: int 1–10 ou None pour lignes sans cuve).
+    """
+    camions = get_camion_cuve_parcs_set()
+    seuil = get_camion_cuve_seuil_litres()
+
+    q_rel = db.session.query(
+        RawData.date_heure,
+        RawData.parc,
+        RawData.personne,
+        RawData.produit,
+        RawData.quantite,
+        RawData.compteur,
+        RawData.cuve_num,
+    )
+    q_rel = _filter_rawdata_by_cuve(q_rel, cuve_num)
+    q_rel = _date_filter(q_rel, RawData, date_from, date_to)
+    releves = q_rel.order_by(RawData.date_heure).all()
+
+    total_brut = 0.0
+    total_conso_ajustee = 0.0
+    parcs_seen = set()
+    for r in releves:
+        qv = float(r.quantite or 0)
+        total_brut += qv
+        total_conso_ajustee += effective_quantite_conso_carburant(
+            r.parc, r.quantite, r.cuve_num, camions, seuil)
+        if r.parc:
+            parcs_seen.add(r.parc)
+
+    nb = len(releves)
+    q2 = db.session.query(
+        db.func.min(RawData.date_heure),
+        db.func.max(RawData.date_heure),
+    )
+    q2 = _filter_rawdata_by_cuve(q2, cuve_num)
+    q2 = _date_filter(q2, RawData, date_from, date_to)
+    minmax = q2.first()
+
+    q_parc = db.session.query(
+        RawData.parc,
+        db.func.sum(RawData.quantite).label('total'),
+    )
+    q_parc = _filter_rawdata_by_cuve(q_parc, cuve_num)
+    q_parc = _date_filter(q_parc, RawData, date_from, date_to)
+    by_parc = q_parc.group_by(RawData.parc).order_by(db.desc('total')).all()
+
+    q_pers = db.session.query(
+        RawData.personne,
+        db.func.sum(RawData.quantite).label('total'),
+    ).filter(RawData.personne != '')
+    q_pers = _filter_rawdata_by_cuve(q_pers, cuve_num)
+    q_pers = _date_filter(q_pers, RawData, date_from, date_to)
+    by_personne = q_pers.group_by(RawData.personne).order_by(db.desc('total')).all()
+
+    q_prod = db.session.query(
+        RawData.produit,
+        db.func.sum(RawData.quantite).label('total'),
+    ).filter(RawData.produit != '').filter(RawData.produit.isnot(None))
+    q_prod = _filter_rawdata_by_cuve(q_prod, cuve_num)
+    q_prod = _date_filter(q_prod, RawData, date_from, date_to)
+    by_produit = q_prod.group_by(RawData.produit).order_by(db.desc('total')).all()
+
+    q5 = db.session.query(
+        func.date(RawData.date_heure).label('dt'),
+        db.func.sum(RawData.quantite).label('total'),
+    )
+    q5 = _filter_rawdata_by_cuve(q5, cuve_num)
+    q5 = _date_filter(q5, RawData, date_from, date_to)
+    by_date = q5.group_by(func.date(RawData.date_heure)).order_by('dt').all()
+
+    anomalies = []
+    if parcs_seen:
+        q4 = Anomalie.query.filter(Anomalie.machine.in_(list(parcs_seen)))
+        q4 = _date_filter(q4, Anomalie, date_from, date_to)
+        if user_id:
+            filter_cond = get_anomalie_filter_conditions(user_id, for_include_in_count=False)
+            q4 = q4.filter(filter_cond)
+        anomalies = q4.order_by(Anomalie.date.desc()).all()
+
+    label = format_cuve_label(cuve_num)
+    site = cuve_num_to_site(cuve_num)
+    try:
+        n_int = int(cuve_num) if cuve_num is not None else None
+    except (TypeError, ValueError):
+        n_int = None
+    is_stock_roulant = n_int is not None and n_int in STOCK_ROULANT_CUVE_IDS
+
+    return {
+        'cuve_num': cuve_num,
+        'label': label,
+        'site': site,
+        'is_stock_roulant': is_stock_roulant,
+        'stats': SimpleNamespace(
+            total=total_brut,
+            total_conso_ajustee=total_conso_ajustee,
+            nb=nb,
+            date_min=minmax[0] if minmax else None,
+            date_max=minmax[1] if minmax else None,
+        ),
+        'releves': releves,
+        'by_parc': by_parc,
+        'by_personne': by_personne,
+        'by_produit': by_produit,
+        'by_date': by_date,
+        'anomalies': anomalies,
     }
 
 

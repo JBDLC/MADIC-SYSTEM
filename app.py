@@ -17,7 +17,7 @@ from config import UPLOAD_FOLDER, CUVE_LABELS, STOCK_ROULANT_CUVE_IDS
 from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, CamionCuve, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold, get_compteur_zero_excluded_products, set_compteur_zero_excluded_products, get_camion_cuve_seuil_litres, set_camion_cuve_seuil_litres
 from excel_importer import import_excel
 from processor import process_all_machines
-from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_all_produits_for_filter, get_machine_detail, get_person_detail
+from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_all_produits_for_filter, get_machine_detail, get_person_detail, get_cuves_summary, get_cuve_detail
 from indicators import get_indicator_data, get_available_values
 
 app = Flask(__name__)
@@ -238,6 +238,25 @@ def reset_data():
     return redirect(url_for('gestion_imports'))
 
 
+@app.route('/camion-cuve')
+@login_required
+def camion_cuve_page():
+    """Paramétrage des machines camion cuve (hors dashboard)."""
+    can_import = current_user.role != 'visualisation'
+    camion_cuves = CamionCuve.query.order_by(CamionCuve.parc).all()
+    stock_roulant_choices = [(n, CUVE_LABELS.get(n, str(n))) for n in sorted(STOCK_ROULANT_CUVE_IDS)]
+    all_machines = get_all_machines_for_filter()
+    return render_template(
+        'camion_cuve.html',
+        can_import=can_import,
+        camion_cuves=camion_cuves,
+        stock_roulant_choices=stock_roulant_choices,
+        camion_cuve_seuil=get_camion_cuve_seuil_litres(),
+        CUVE_LABELS=CUVE_LABELS,
+        all_machines=all_machines,
+    )
+
+
 @app.route('/camion-cuve/ajouter', methods=['POST'])
 @login_required
 @can_import_required
@@ -248,20 +267,20 @@ def camion_cuve_ajouter():
         stock = int(request.form.get('stock_roulant_num'))
     except (ValueError, TypeError):
         flash('Numéro de stock roulant invalide.', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('camion_cuve_page'))
     if stock not in STOCK_ROULANT_CUVE_IDS:
         flash('Choisissez un stock roulant (4, 5, 9 ou 10).', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('camion_cuve_page'))
     if not parc:
         flash('Sélectionnez une machine.', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('camion_cuve_page'))
     if CamionCuve.query.get(parc):
         flash('Cette machine est déjà enregistrée comme camion cuve.', 'warning')
-        return redirect(url_for('index'))
+        return redirect(url_for('camion_cuve_page'))
     db.session.add(CamionCuve(parc=parc, stock_roulant_num=stock))
     db.session.commit()
     flash('Camion cuve enregistré.', 'success')
-    return redirect(url_for('index'))
+    return redirect(url_for('camion_cuve_page'))
 
 
 @app.route('/camion-cuve/retirer', methods=['POST'])
@@ -275,7 +294,7 @@ def camion_cuve_retirer():
         db.session.delete(cc)
         db.session.commit()
         flash('Camion cuve retiré de la liste.', 'success')
-    return redirect(url_for('index'))
+    return redirect(url_for('camion_cuve_page'))
 
 
 def _parse_date(s):
@@ -356,8 +375,7 @@ def index():
     all_personnes = get_all_personnes_for_filter()
     has_filter = bool(machine_filter or person_filter or date_from or date_to)
     can_import = current_user.role != 'visualisation'
-    camion_cuves = CamionCuve.query.order_by(CamionCuve.parc).all()
-    stock_roulant_choices = [(n, CUVE_LABELS.get(n, str(n))) for n in sorted(STOCK_ROULANT_CUVE_IDS)]
+    cuves_summary = get_cuves_summary()
     return render_template('index.html',
         stats=stats,
         all_machines=all_machines,
@@ -368,10 +386,7 @@ def index():
         date_to_str=uf.date_to_str if uf else '',
         has_filter=has_filter,
         can_import=can_import,
-        camion_cuves=camion_cuves,
-        stock_roulant_choices=stock_roulant_choices,
-        camion_cuve_seuil=get_camion_cuve_seuil_litres(),
-        CUVE_LABELS=CUVE_LABELS)
+        cuves_summary=cuves_summary)
 
 
 def _do_import(filepath, filename):
@@ -698,6 +713,61 @@ def personne_detail():
         detail=detail,
         date_min_str=_to_iso(date_min),
         date_max_str=_to_iso(date_max))
+
+
+@app.route('/detail/cuve')
+@login_required
+def cuve_detail():
+    """Page détail d'une cuve : indicateurs, graphiques, relevés. ?cuve=1..10 ou ?cuve=sans"""
+    cuve_raw = (request.args.get('cuve') or '').strip()
+    if not cuve_raw:
+        flash('Cuve non spécifiée.', 'error')
+        return redirect(url_for('index'))
+    s = cuve_raw.lower()
+    if s in ('sans', 'none', 'null', 'vide'):
+        cuve_num = None
+    else:
+        try:
+            n = int(cuve_raw)
+            if 1 <= n <= 10:
+                cuve_num = n
+            else:
+                flash('Le numéro de cuve doit être entre 1 et 10.', 'error')
+                return redirect(url_for('index'))
+        except ValueError:
+            flash('Numéro de cuve invalide.', 'error')
+            return redirect(url_for('index'))
+
+    date_from = date_to = None
+    try:
+        df = request.args.get('date_from', '')
+        dt = request.args.get('date_to', '')
+        if df:
+            date_from = datetime.strptime(df, '%Y-%m-%d').date()
+        if dt:
+            date_to = datetime.strptime(dt, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+
+    detail = get_cuve_detail(cuve_num, date_from, date_to, current_user.id if current_user.is_authenticated else None)
+    detail['by_date_chart'] = [[str(d.dt) if hasattr(d, 'dt') else d[0], float(d.total) if hasattr(d, 'total') else d[1]] for d in (detail.get('by_date') or [])]
+    detail['by_parc_chart'] = [[str(p[0]) or '-', float(p[1]) if len(p) > 1 else 0] for p in (detail.get('by_parc') or [])]
+    detail['by_personne_chart'] = [[str(p[0]) or '-', float(p[1]) if len(p) > 1 else 0] for p in (detail.get('by_personne') or [])]
+    detail['by_produit_chart'] = [[str(p[0]) or '-', float(p[1]) if len(p) > 1 else 0] for p in (detail.get('by_produit') or [])]
+    detail['anomalies_json'] = [{'type_anomalie': a.type_anomalie} for a in (detail.get('anomalies') or [])]
+    date_min, date_max = get_date_range()
+
+    def _to_iso(d):
+        if d is None:
+            return ''
+        return d.isoformat() if hasattr(d, 'isoformat') else str(d)[:10]
+
+    cuve_param = 'sans' if cuve_num is None else cuve_num
+    return render_template('detail_cuve.html',
+        detail=detail,
+        date_min_str=_to_iso(date_min),
+        date_max_str=_to_iso(date_max),
+        cuve_param=cuve_param)
 
 
 @app.route('/rapports')
