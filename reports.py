@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Génération de rapports PDF et Excel."""
 import os
+from collections import defaultdict, namedtuple
 from datetime import datetime, date
 from flask import current_app
 from reportlab.lib import colors
@@ -32,36 +33,55 @@ def get_stats(machine_filter=None, person_filter=None, user_id=None, date_from=N
     machine_filter: liste optionnelle de parcs à inclure.
     person_filter: liste optionnelle de noms de personnes à inclure.
     user_id: id utilisateur pour le décompte des anomalies.
-    date_from, date_to: filtre calendrier optionnel pour total carburant et anomalies.
+    date_from, date_to: filtre calendrier pour total carburant, listes machines/personnes et anomalies.
+    Les totaux par machine et par personne utilisent les mêmes filtres que le total carburant
+    (période, machines, personnes) et la même règle d'ajustement camion cuve.
     """
-    # Total carburant « consommation » (hors remplissage camions cuve > seuil sur cuve fixe)
     camions = get_camion_cuve_parcs_set()
     seuil_camion = get_camion_cuve_seuil_litres()
-    q_conso = db.session.query(RawData.parc, RawData.quantite, RawData.cuve_num)
+
+    q_conso = db.session.query(
+        RawData.parc, RawData.quantite, RawData.cuve_num, RawData.personne,
+    )
     q_conso = _date_filter(q_conso, RawData, date_from, date_to)
     if machine_filter and len(machine_filter) > 0:
         q_conso = q_conso.filter(RawData.parc.in_(machine_filter))
     if person_filter and len(person_filter) > 0:
         q_conso = q_conso.filter(RawData.personne.in_(person_filter))
-    total_carburant = sum(
-        effective_quantite_conso_carburant(r.parc, r.quantite, r.cuve_num, camions, seuil_camion)
-        for r in q_conso.all()
-    )
-    
-    # Machines et personnes : sans filtre dates (toutes les données)
-    q_mach = db.session.query(
-        RawData.parc, db.func.sum(RawData.quantite).label('total')
-    ).group_by(RawData.parc).order_by(db.desc('total'))
-    if machine_filter and len(machine_filter) > 0:
-        q_mach = q_mach.filter(RawData.parc.in_(machine_filter))
-    top_machines = q_mach.all()
-    
-    q_pers = db.session.query(
-        RawData.personne, db.func.sum(RawData.quantite).label('total')
-    ).filter(RawData.personne != '').group_by(RawData.personne).order_by(db.desc('total'))
-    if person_filter and len(person_filter) > 0:
-        q_pers = q_pers.filter(RawData.personne.in_(person_filter))
-    top_personnes = q_pers.all()
+
+    rows = q_conso.all()
+    total_carburant = 0.0
+    by_parc = defaultdict(float)
+    by_personne = defaultdict(float)
+
+    if not camions:
+        for r in rows:
+            eff = float(r.quantite or 0)
+            total_carburant += eff
+            by_parc[r.parc or ''] += eff
+            pn = (r.personne or '').strip()
+            if pn:
+                by_personne[pn] += eff
+    else:
+        for r in rows:
+            eff = effective_quantite_conso_carburant(
+                r.parc, r.quantite, r.cuve_num, camions, seuil_camion)
+            total_carburant += eff
+            by_parc[r.parc or ''] += eff
+            pn = (r.personne or '').strip()
+            if pn:
+                by_personne[pn] += eff
+
+    MachTot = namedtuple('MachTot', ['parc', 'total'])
+    PersTot = namedtuple('PersTot', ['personne', 'total'])
+    top_machines = [
+        MachTot(parc=(p if p else '(non renseigné)'), total=t)
+        for p, t in sorted(by_parc.items(), key=lambda x: -x[1])
+    ]
+    top_personnes = [
+        PersTot(personne=p, total=t)
+        for p, t in sorted(by_personne.items(), key=lambda x: -x[1])
+    ]
     
     q_anom = Anomalie.query.filter(get_anomalie_filter_conditions(user_id, for_include_in_count=True))
     q_anom = _date_filter(q_anom, Anomalie, date_from, date_to)

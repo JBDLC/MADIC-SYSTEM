@@ -1,7 +1,15 @@
 # -*- coding: utf-8 -*-
 """Traitement des données et détection des anomalies."""
 from datetime import datetime
-from database import db, RawData, ProcessedData, Anomalie, get_jump_threshold, get_compteur_zero_excluded_products
+from database import (
+    db,
+    RawData,
+    ProcessedData,
+    Anomalie,
+    get_jump_threshold,
+    get_compteur_zero_excluded_products,
+    get_camion_cuve_parcs_set,
+)
 
 
 def process_all_machines():
@@ -14,20 +22,23 @@ def process_all_machines():
     
     parcs = db.session.query(RawData.parc).distinct().all()
     parcs = [p[0] for p in parcs]
-    
+    camion_cuve_parcs = get_camion_cuve_parcs_set()
+
     for parc in parcs:
-        _process_machine(parc)
+        _process_machine(parc, camion_cuve_parcs)
     
     db.session.commit()
 
 
-def _process_machine(parc):
+def _process_machine(parc, camion_cuve_parcs):
     """Traite une machine : tri, calculs, anomalies.
     Produits exclus (ex: ADB) : pas d'anomalie compteur zero, et on "saute" ces relevés
     pour le calcul des diff (on utilise les 2 relevés normaux qui entourent).
+    Camions cuve : pas d'anomalies sur le compteur (remplissage sans relevé km/temps fiable).
     """
     rows = RawData.query.filter_by(parc=parc).order_by(RawData.date_heure).all()
     excluded_products = get_compteur_zero_excluded_products()
+    is_camion_cuve = parc in camion_cuve_parcs
     
     prev = None
     prev_normal = None  # Dernier relevé dont le produit n'est pas exclu (pour bridger)
@@ -79,6 +90,7 @@ def _process_machine(parc):
             quantite_after=quantite_after,
             diff_compteur=diff_compteur,
             skip_compteur_zero=is_excluded,
+            is_camion_cuve=is_camion_cuve,
         )
         # Pour les relevés exclus (ex: ADB), on ne crée aucune anomalie (compteur non fiable)
         if not is_excluded:
@@ -91,10 +103,12 @@ def _process_machine(parc):
 
 
 def _detect_anomalies(parc, date, prev_date, personne, produit=None,
-                      compteur_before=0, compteur_after=0, 
+                      compteur_before=0, compteur_after=0,
                       quantite_before=0, quantite_after=0, diff_compteur=0,
-                      skip_compteur_zero=False):
-    """Détecte les anomalies. skip_compteur_zero=True pour les produits exclus (ex: ADB)."""
+                      skip_compteur_zero=False, is_camion_cuve=False):
+    """Détecte les anomalies. skip_compteur_zero=True pour les produits exclus (ex: ADB).
+    is_camion_cuve=True : n'émet pas d'anomalies liées au compteur (km/temps souvent non saisis au remplissage).
+    """
     anomalies = []
     
     # 1. Zero quantity
@@ -105,6 +119,9 @@ def _detect_anomalies(parc, date, prev_date, personne, produit=None,
             quantite_before=quantite_before, quantite_after=quantite_after,
             details='Quantité égale à 0'
         ))
+    
+    if is_camion_cuve:
+        return anomalies
     
     # 2. Compteur decreased
     if prev_date is not None and compteur_after < compteur_before:
