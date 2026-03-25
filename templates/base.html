@@ -238,6 +238,15 @@
             font-size: 0.9rem;
         }
         .nav-user-menu a:hover { background: rgba(255,255,255,0.1); }
+        .site-footer {
+            margin-top: 48px;
+            padding: 20px 0 28px;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            border-top: 1px solid #e9ecef;
+        }
+        .site-footer p { margin: 0; letter-spacing: 0.02em; }
     </style>
     <script>
     document.addEventListener('DOMContentLoaded', function() {
@@ -266,11 +275,8 @@
             </a>
             <div class="nav-links">
                 <a href="{{ url_for('index') }}" {% if request.endpoint and request.endpoint == 'index' %}class="active"{% endif %}>Dashboard</a>
+                <a href="{{ url_for('famille_page') }}" {% if request.endpoint and request.endpoint == 'famille_page' %}class="active"{% endif %}>Famille</a>
                 <a href="{{ url_for('indicateurs') }}" {% if request.endpoint and request.endpoint == 'indicateurs' %}class="active"{% endif %}>Indicateurs</a>
-                <a href="{{ url_for('rapports') }}" {% if request.endpoint and request.endpoint == 'rapports' %}class="active"{% endif %}>Rapports</a>
-                {% if current_user.is_authenticated and current_user.role != 'visualisation' %}
-                <a href="{{ url_for('gestion_imports') }}" {% if request.endpoint and request.endpoint == 'gestion_imports' %}class="active"{% endif %}>Gestion des imports</a>
-                {% endif %}
             </div>
             <div class="nav-right">
                 {% if current_user.is_authenticated %}
@@ -297,5 +303,10 @@
             {% block content %}{% endblock %}
         </div>
     </main>
+    <footer class="site-footer">
+        <div class="container">
+            <p>Powered by ÆDIFY</p>
+        </div>
+    </footer>
 </body>
 </html>

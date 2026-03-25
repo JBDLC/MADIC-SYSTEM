@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import UPLOAD_FOLDER, CUVE_LABELS, STOCK_ROULANT_CUVE_IDS
-from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, CamionCuve, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold, get_compteur_zero_excluded_products, set_compteur_zero_excluded_products, get_camion_cuve_seuil_litres, set_camion_cuve_seuil_litres
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, CamionCuve, Famille, MachineFamille, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold, get_compteur_zero_excluded_products, set_compteur_zero_excluded_products, get_camion_cuve_seuil_litres, set_camion_cuve_seuil_litres
 from excel_importer import import_excel
 from processor import process_all_machines
 from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_all_produits_for_filter, get_machine_detail, get_person_detail, get_cuves_summary, get_cuve_detail
@@ -295,6 +295,86 @@ def camion_cuve_retirer():
         db.session.commit()
         flash('Camion cuve retiré de la liste.', 'success')
     return redirect(url_for('camion_cuve_page'))
+
+
+@app.route('/famille')
+@login_required
+def famille_page():
+    """Regroupement des machines par familles (pour filtres / indicateurs)."""
+    can_import = current_user.role != 'visualisation'
+    familles = Famille.query.order_by(Famille.nom).all()
+    machines = get_all_machines_for_filter()
+    assign = {mf.parc: mf.famille_id for mf in MachineFamille.query.all()}
+    return render_template(
+        'famille.html',
+        can_import=can_import,
+        familles=familles,
+        machines=machines,
+        assign=assign,
+    )
+
+
+@app.route('/famille/creer', methods=['POST'])
+@login_required
+@can_import_required
+def famille_creer():
+    nom = (request.form.get('nom') or '').strip()[:120]
+    if not nom:
+        flash('Nom de famille requis.', 'error')
+        return redirect(url_for('famille_page'))
+    if Famille.query.filter_by(nom=nom).first():
+        flash('Ce nom de famille existe déjà.', 'warning')
+        return redirect(url_for('famille_page'))
+    db.session.add(Famille(nom=nom))
+    db.session.commit()
+    flash('Famille créée.', 'success')
+    return redirect(url_for('famille_page'))
+
+
+@app.route('/famille/supprimer/<int:fid>', methods=['POST'])
+@login_required
+@can_import_required
+def famille_supprimer(fid):
+    f = Famille.query.get_or_404(fid)
+    MachineFamille.query.filter_by(famille_id=f.id).update({MachineFamille.famille_id: None})
+    db.session.delete(f)
+    db.session.commit()
+    flash('Famille supprimée. Les machines associées sont passées en « sans famille ».', 'success')
+    return redirect(url_for('famille_page'))
+
+
+@app.route('/famille/assigner', methods=['POST'])
+@login_required
+@can_import_required
+def famille_assigner():
+    parc = (request.form.get('parc') or '').strip()[:50]
+    if not parc:
+        flash('Machine non précisée.', 'error')
+        return redirect(url_for('famille_page'))
+    raw_fid = request.form.get('famille_id')
+    fid = None
+    if raw_fid is not None and str(raw_fid).strip() != '':
+        try:
+            fid = int(raw_fid)
+        except (ValueError, TypeError):
+            fid = None
+    if fid is not None and Famille.query.get(fid) is None:
+        flash('Famille invalide.', 'error')
+        return redirect(url_for('famille_page'))
+    mf = MachineFamille.query.get(parc)
+    if fid is None:
+        if mf:
+            mf.famille_id = None
+        else:
+            db.session.add(MachineFamille(parc=parc, famille_id=None))
+    else:
+        if mf:
+            mf.famille_id = fid
+        else:
+            db.session.add(MachineFamille(parc=parc, famille_id=fid))
+    db.session.commit()
+    flash('Affectation enregistrée.', 'success')
+    return redirect(url_for('famille_page'))
 
 
 def _parse_date(s):
@@ -606,7 +686,7 @@ def api_indicateurs_data():
 @login_required
 def api_indicateurs_values(dimension):
     """API retournant les valeurs disponibles pour une dimension (parc, personne, produit)."""
-    if dimension not in ('parc', 'personne', 'produit', 'site', 'cuve'):
+    if dimension not in ('parc', 'personne', 'produit', 'site', 'cuve', 'famille'):
         return jsonify([])
     date_from = date_to = None
     try:

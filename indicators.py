@@ -3,7 +3,16 @@
 from datetime import datetime, date
 from collections import defaultdict
 
-from database import db, RawData, Anomalie, get_anomalie_filter_conditions, get_camion_cuve_parcs_set, get_camion_cuve_seuil_litres
+from database import (
+    db,
+    RawData,
+    Anomalie,
+    get_anomalie_filter_conditions,
+    get_camion_cuve_parcs_set,
+    get_camion_cuve_seuil_litres,
+    get_parc_to_famille_nom_map,
+    famille_label_for_parc,
+)
 from config import cuve_num_to_site, format_cuve_label
 from consumption import effective_quantite_conso_carburant
 
@@ -46,16 +55,17 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
     """
     Retourne les données agrégées pour le graphique.
     
-    x_axis: 'date' | 'parc' | 'personne' | 'produit' | 'site' | 'cuve' | 'type_anomalie'
+    x_axis: 'date' | 'parc' | 'personne' | 'produit' | 'site' | 'cuve' | 'famille' | 'type_anomalie'
     x_date_group: 'jour' | 'semaine' | 'mois' | 'annee' (si x_axis=date)
     y_metrics: liste de {'metric': ..., 'agg': ...}
-    serie_dim: None | 'parc' | 'personne' | 'produit' | 'site' | 'cuve'
+    serie_dim: None | 'parc' | 'personne' | 'produit' | 'site' | 'cuve' | 'famille'
     serie_filter: liste optionnelle de valeurs à inclure (ex: ['Parc1','Parc2']). Si fournie, seules ces séries sont affichées.
     """
     result = defaultdict(lambda: defaultdict(float))
     series_keys = set()
     camions = get_camion_cuve_parcs_set()
     seuil_camion = get_camion_cuve_seuil_litres()
+    fam_map = get_parc_to_famille_nom_map()
     
     # Mapping colonnes RawData
     raw_col_map = {
@@ -94,6 +104,8 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                 x_key = cuve_num_to_site(r.cuve_num) or '(non renseigné)'
             elif x_axis == 'cuve':
                 x_key = format_cuve_label(r.cuve_num)
+            elif x_axis == 'famille':
+                x_key = famille_label_for_parc(r.parc, fam_map)
             else:
                 x_key = '?'
             
@@ -109,6 +121,8 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                     s_key = cuve_num_to_site(r.cuve_num) or '(non renseigné)'
                 elif serie_dim == 'cuve':
                     s_key = format_cuve_label(r.cuve_num)
+                elif serie_dim == 'famille':
+                    s_key = famille_label_for_parc(r.parc, fam_map)
                 else:
                     s_key = 'Global'
             else:
@@ -166,6 +180,8 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                 x_key = cuve_num_to_site(r.cuve_num) or '(non renseigné)'
             elif x_axis == 'cuve':
                 x_key = format_cuve_label(r.cuve_num)
+            elif x_axis == 'famille':
+                x_key = famille_label_for_parc(r.parc, fam_map)
             else:
                 x_key = '?'
             if serie_dim == 'parc':
@@ -178,6 +194,8 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                 s_key = cuve_num_to_site(r.cuve_num) or '(non renseigné)'
             elif serie_dim == 'cuve':
                 s_key = format_cuve_label(r.cuve_num)
+            elif serie_dim == 'famille':
+                s_key = famille_label_for_parc(r.parc, fam_map)
             else:
                 s_key = '__global__'
             counts[(x_key, s_key)] += 1
@@ -211,6 +229,8 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                 x_key = '(vide)'  # anomalie n'a pas produit
             elif x_axis == 'type_anomalie':
                 x_key = str(a.type_anomalie or '')
+            elif x_axis == 'famille':
+                x_key = famille_label_for_parc(a.machine, fam_map)
             else:
                 x_key = '?'
             
@@ -220,6 +240,8 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                 s_key = str(a.personne or '(vide)')
             elif serie_dim == 'produit':
                 s_key = '(vide)'
+            elif serie_dim == 'famille':
+                s_key = famille_label_for_parc(a.machine, fam_map)
             else:
                 s_key = '__global__'
             
@@ -316,4 +338,13 @@ def get_available_values(dimension, date_from=None, date_to=None):
                 seen.add(lbl)
                 out.append(lbl)
         return sorted(out)
+    if dimension == 'famille':
+        m = get_parc_to_famille_nom_map()
+        base = q(RawData.parc).distinct().filter(RawData.parc != '')
+        base = _date_filter(base, RawData, date_from, date_to)
+        rows = base.all()
+        labs = set()
+        for r in rows:
+            labs.add(famille_label_for_parc(r[0], m))
+        return sorted(labs)
     return []

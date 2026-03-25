@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> Familles de machines</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">Retour</a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, msg in messages %}
+            <div class="alert alert-{{ category if category in ['success','error','warning'] else 'success' }}">{{ msg }}</div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 20px; max-width: 800px;">
+    Créez des familles et affectez chaque machine importée à une famille. Dans <strong>Indicateurs</strong>, utilisez
+    <strong>Grouper par → Par famille</strong> (ou l’axe <strong>Famille</strong>) pour analyser les volumes par groupe.
+    Les machines non affectées sont comptées comme <strong>(Sans famille)</strong>.
+</p>
+
+{% if can_import %}
+<div class="card" style="margin-bottom: 24px;">
+    <h2 style="margin-top: 0;">Créer une famille</h2>
+    <form method="post" action="{{ url_for('famille_creer') }}" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;">
+        <div>
+            <label for="nom_famille" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px;">Nom</label>
+            <input type="text" id="nom_famille" name="nom" maxlength="120" required placeholder="Ex. Pelles, Tombereaux…" style="min-width: 260px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px;">
+        </div>
+        <button type="submit" class="btn btn-primary">Créer</button>
+    </form>
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+    <h2 style="margin-top: 0;">Familles existantes</h2>
+    {% if familles %}
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+        <thead>
+            <tr style="text-align: left; border-bottom: 1px solid #e9ecef;">
+                <th style="padding: 8px 0;">Nom</th>
+                <th style="padding: 8px 0; width: 100px;"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in familles %}
+            <tr style="border-bottom: 1px solid #f0f0f0;">
+                <td style="padding: 8px 0;">{{ f.nom }}</td>
+                <td style="padding: 8px 0;">
+                    <form method="post" action="{{ url_for('famille_supprimer', fid=f.id) }}" style="display: inline;" onsubmit="return confirm('Supprimer la famille « {{ f.nom }} » ? Les machines seront sans famille.');">
+                        <button type="submit" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.85rem;">Supprimer</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-muted);">Aucune famille pour l’instant.</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+    <h2 style="margin-top: 0;">Affectation par machine</h2>
+    <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">Machines présentes dans les données importées. Chaque changement est enregistré immédiatement.</p>
+    {% if machines %}
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+        <thead>
+            <tr style="text-align: left; border-bottom: 1px solid #e9ecef;">
+                <th style="padding: 8px 0;">Machine</th>
+                <th style="padding: 8px 0;">Famille</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for m in machines %}
+            <tr style="border-bottom: 1px solid #f0f0f0;">
+                <td style="padding: 8px 0; vertical-align: middle;">{{ m }}</td>
+                <td style="padding: 8px 0;">
+                    <form method="post" action="{{ url_for('famille_assigner') }}" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+                        <input type="hidden" name="parc" value="{{ m }}">
+                        <select name="famille_id" style="min-width: 220px; padding: 6px 10px; border-radius: 6px; border: 1px solid #ddd;" {% if can_import %}onchange="this.form.submit()"{% else %}disabled{% endif %}>
+                            <option value="" {% if assign.get(m) is none %}selected{% endif %}>(Sans famille)</option>
+                            {% for f in familles %}
+                            <option value="{{ f.id }}" {% if assign.get(m) == f.id %}selected{% endif %}>{{ f.nom }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: var(--text-muted);">Aucune machine dans les données. <a href="{{ url_for('gestion_imports') }}">Importer des données</a>.</p>
+    {% endif %}
+</div>
+{% endblock %}

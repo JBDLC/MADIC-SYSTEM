@@ -3,7 +3,7 @@
 <div class="page-header">
     <h1 class="page-title"><span class="sep">|</span> Dashboard</h1>
     <div class="page-actions" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
-        <a href="{{ url_for('rapports') }}" class="btn btn-add">Générer rapports</a>
+        <a href="{{ url_for('rapports') }}" class="btn btn-add">Générer un rapport</a>
         {% if can_import %}
         <a href="{{ url_for('camion_cuve_page') }}" class="btn-camion-cuve" title="Camions cuve" aria-label="Camions cuve">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -14,7 +14,7 @@
                 <circle cx="18.5" cy="18.5" r="2"/>
             </svg>
         </a>
-        <a href="{{ url_for('gestion_imports') }}" class="btn btn-primary">+ Importer un fichier</a>
+        <a href="{{ url_for('gestion_imports') }}" class="btn btn-primary">+ Importer des données</a>
         {% endif %}
     </div>
 </div>
@@ -112,7 +112,7 @@
             </a>
             {% endfor %}
         {% else %}
-            <p style="color: var(--text-muted); padding: 20px;">Aucune donnée. <a href="{{ url_for('gestion_imports') }}">Importer un fichier Excel</a>.</p>
+            <p style="color: var(--text-muted); padding: 20px;">Aucune donnée. <a href="{{ url_for('gestion_imports') }}">Importer des données</a>.</p>
         {% endif %}
     </div>
 </div>

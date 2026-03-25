@@ -522,6 +522,39 @@ def get_camion_cuve_parcs_set():
     return {r[0] for r in rows if r[0]}
 
 
+class Famille(db.Model):
+    """Famille d'équipement (regroupement de machines)."""
+    __tablename__ = 'familles'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nom = db.Column(db.String(120), nullable=False, unique=True)
+
+
+class MachineFamille(db.Model):
+    """Affectation machine (parc) → famille."""
+    __tablename__ = 'machine_famille'
+
+    parc = db.Column(db.String(50), primary_key=True)
+    famille_id = db.Column(db.Integer, db.ForeignKey('familles.id', ondelete='SET NULL'), nullable=True)
+
+
+def get_parc_to_famille_nom_map():
+    """parc → libellé famille pour les graphiques (machines sans ligne ou sans famille : « (Sans famille) »)."""
+    id_to_nom = {f.id: f.nom for f in Famille.query.all()}
+    out = {}
+    for mf in MachineFamille.query.all():
+        if mf.famille_id and mf.famille_id in id_to_nom:
+            out[mf.parc] = id_to_nom[mf.famille_id]
+        else:
+            out[mf.parc] = '(Sans famille)'
+    return out
+
+
+def famille_label_for_parc(parc, mapping):
+    """Libellé famille pour un parc (défaut : Sans famille)."""
+    return mapping.get(parc, '(Sans famille)')
+
+
 class HistoryPeriod(db.Model):
     """Périodes déjà importées (pour éviter les doublons)."""
     __tablename__ = 'history_periods'
