@@ -8,7 +8,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.units import cm
-from database import db, RawData, Anomalie, get_anomalie_filter_conditions
+from database import db, RawData, Anomalie, get_anomalie_filter_conditions, get_camion_cuve_parcs_set, get_camion_cuve_seuil_litres
+from consumption import effective_quantite_conso_carburant
 from sqlalchemy import func
 
 
@@ -33,10 +34,19 @@ def get_stats(machine_filter=None, person_filter=None, user_id=None, date_from=N
     user_id: id utilisateur pour le décompte des anomalies.
     date_from, date_to: filtre calendrier optionnel pour total carburant et anomalies.
     """
-    # Total carburant et anomalies : filtre dates appliqué
-    q_total = db.session.query(db.func.sum(RawData.quantite))
-    q_total = _date_filter(q_total, RawData, date_from, date_to)
-    total_carburant = q_total.scalar() or 0
+    # Total carburant « consommation » (hors remplissage camions cuve > seuil sur cuve fixe)
+    camions = get_camion_cuve_parcs_set()
+    seuil_camion = get_camion_cuve_seuil_litres()
+    q_conso = db.session.query(RawData.parc, RawData.quantite, RawData.cuve_num)
+    q_conso = _date_filter(q_conso, RawData, date_from, date_to)
+    if machine_filter and len(machine_filter) > 0:
+        q_conso = q_conso.filter(RawData.parc.in_(machine_filter))
+    if person_filter and len(person_filter) > 0:
+        q_conso = q_conso.filter(RawData.personne.in_(person_filter))
+    total_carburant = sum(
+        effective_quantite_conso_carburant(r.parc, r.quantite, r.cuve_num, camions, seuil_camion)
+        for r in q_conso.all()
+    )
     
     # Machines et personnes : sans filtre dates (toutes les données)
     q_mach = db.session.query(

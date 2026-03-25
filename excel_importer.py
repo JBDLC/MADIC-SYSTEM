@@ -257,6 +257,17 @@ def load_excel(filepath):
         quantite = _parse_float(row.iloc[mapping['quantite']]) if 'quantite' in mapping else 0.0
         compteur = _parse_float(row.iloc[mapping['compteur']]) if 'compteur' in mapping else 0.0
         
+        cuve_num = None
+        if 'cuve' in mapping:
+            try:
+                cv = row.iloc[mapping['cuve']]
+                if not pd.isna(cv):
+                    cuve_num = int(float(str(cv).strip().replace(',', '.')))
+                    if cuve_num < 1 or cuve_num > 10:
+                        cuve_num = None
+            except (ValueError, TypeError):
+                cuve_num = None
+        
         def get_val(prop, maxlen=100):
             idx = mapping.get(prop)
             if idx is None:
@@ -274,6 +285,7 @@ def load_excel(filepath):
             'quantite': quantite,
             'compteur': compteur,
             'unite': get_val('unite', 20) or 'L',
+            'cuve_num': cuve_num,
         })
     
     out = pd.DataFrame(result)
@@ -286,11 +298,11 @@ def load_excel(filepath):
 
 
 def get_existing_dates():
-    """Retourne l'ensemble des (date_heure, parc, quantite, compteur) déjà en base."""
+    """Retourne l'ensemble des clés déjà en base (inclut cuve pour dédoublonnage)."""
     rows = RawData.query.with_entities(
-        RawData.date_heure, RawData.parc, RawData.quantite, RawData.compteur
+        RawData.date_heure, RawData.parc, RawData.quantite, RawData.compteur, RawData.cuve_num
     ).all()
-    return {(r[0], r[1], r[2], r[3]) for r in rows}
+    return {(r[0], r[1], r[2], r[3], r[4]) for r in rows}
 
 
 def import_excel(filepath, filename=''):
@@ -308,7 +320,7 @@ def import_excel(filepath, filename=''):
     to_insert = []
     
     for _, row in df.iterrows():
-        key = (row['date_heure'], row['parc'], row['quantite'], row['compteur'])
+        key = (row['date_heure'], row['parc'], row['quantite'], row['compteur'], row.get('cuve_num'))
         if key in existing:
             continue
         to_insert.append(RawData(
@@ -321,6 +333,7 @@ def import_excel(filepath, filename=''):
             quantite=row['quantite'],
             compteur=row['compteur'],
             unite=row.get('unite', ''),
+            cuve_num=row.get('cuve_num'),
         ))
         existing.add(key)
     

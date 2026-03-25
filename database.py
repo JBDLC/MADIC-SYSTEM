@@ -65,6 +65,29 @@ def _migrate_user_anomalie_produits(app):
         pass
 
 
+def _migrate_raw_data_cuve(app):
+    """Ajoute la colonne cuve_num à raw_data si absente."""
+    from sqlalchemy import text
+    try:
+        with app.app_context():
+            with db.engine.connect() as conn:
+                uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+                if 'sqlite' in uri:
+                    result = conn.execute(text("PRAGMA table_info(raw_data)"))
+                    col_exists = 'cuve_num' in [r[1] for r in result]
+                else:
+                    result = conn.execute(text("""
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name='raw_data' AND column_name='cuve_num'
+                    """))
+                    col_exists = result.fetchone() is not None
+                if not col_exists:
+                    conn.execute(text("ALTER TABLE raw_data ADD COLUMN cuve_num INTEGER"))
+                    conn.commit()
+    except Exception:
+        pass
+
+
 def _migrate_user_filter_dates(app):
     """Ajoute date_from_str et date_to_str à user_filters si absents."""
     from sqlalchemy import text
@@ -139,6 +162,7 @@ def init_db(app):
         _migrate_add_history_period_id(app)
         _migrate_anomalie_produit(app)
         _migrate_user_filter_dates(app)
+        _migrate_raw_data_cuve(app)
         _migrate_user_anomalie_produits(app)
         _ensure_admin_user()
         _ensure_anomalie_type_config()
@@ -168,7 +192,16 @@ class RawData(db.Model):
     quantite = db.Column(db.Float, nullable=False)
     compteur = db.Column(db.Float, nullable=False)
     unite = db.Column(db.String(20))
+    cuve_num = db.Column(db.Integer, nullable=True)  # 1–10 : lieu de plein (voir config.CUVE_LABELS)
     imported_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class CamionCuve(db.Model):
+    """Machines identifiées comme camions cuve + n° de stock roulant associé."""
+    __tablename__ = 'camion_cuve'
+    
+    parc = db.Column(db.String(50), primary_key=True)
+    stock_roulant_num = db.Column(db.Integer, nullable=False)  # ex. 4, 5, 9, 10
 
 
 class ProcessedData(db.Model):
@@ -453,6 +486,40 @@ def set_compteur_zero_excluded_products(products):
         row = SystemConfig(key='compteur_zero_excluded_products', value=json.dumps(lst))
         db.session.add(row)
     db.session.commit()
+
+
+def get_camion_cuve_seuil_litres():
+    """Seuil (L) : au-dessus = remplissage cuve mobile (hors stock roulant), en dessous = conso pour rouler."""
+    try:
+        row = SystemConfig.query.filter_by(key='camion_cuve_seuil_litres').first()
+        if row and row.value:
+            return float(row.value)
+    except (ValueError, TypeError):
+        pass
+    return 100.0
+
+
+def set_camion_cuve_seuil_litres(value):
+    try:
+        v = float(value)
+        if v < 0:
+            v = 0.0
+    except (ValueError, TypeError):
+        v = 100.0
+    row = SystemConfig.query.filter_by(key='camion_cuve_seuil_litres').first()
+    if row:
+        row.value = str(v)
+    else:
+        row = SystemConfig(key='camion_cuve_seuil_litres', value=str(v))
+        db.session.add(row)
+    db.session.commit()
+    return v
+
+
+def get_camion_cuve_parcs_set():
+    """Ensemble des parcs déclarés comme camions cuve."""
+    rows = CamionCuve.query.with_entities(CamionCuve.parc).all()
+    return {r[0] for r in rows if r[0]}
 
 
 class HistoryPeriod(db.Model):

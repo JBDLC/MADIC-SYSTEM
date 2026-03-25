@@ -30,6 +30,11 @@
             <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 8px;">À partir de ce saut (km) entre deux relevés, une anomalie est créée. S'applique à tous. Si modifié, les anomalies sont recalculées.</span>
         </div>
         <div style="margin-bottom: 20px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
+            <label for="camion_cuve_seuil_litres" style="font-weight: 600; margin-right: 8px;">Seuil camion cuve (litres)</label>
+            <input type="number" id="camion_cuve_seuil_litres" name="camion_cuve_seuil_litres" value="{{ camion_cuve_seuil }}" min="0" step="1" style="width: 80px; padding: 6px;">
+            <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 8px;">En dessous de ce volume, un prélèvement sur une cuve fixe par un camion cuve est compté comme consommation (ravitaillement pour rouler). Au-dessus, sur cuve fixe hors stock roulant, le volume est exclu du total carburant.</span>
+        </div>
+        <div style="margin-bottom: 20px; padding: 12px; background: #f8f9fa; border-radius: 8px;">
             <label style="font-weight: 600; display: block; margin-bottom: 8px;">Produits à exclure pour « compteur zéro »</label>
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Produits (ex: ADB) où le compteur n'est pas demandé. Pas d'anomalie « compteur zéro » pour ces relevés, et le calcul des différences utilise les relevés normaux qui les entourent.</p>
             <select name="compteur_zero_excluded_products" multiple size="4" style="min-width: 200px; padding: 6px;">

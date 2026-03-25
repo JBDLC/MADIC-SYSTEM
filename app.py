@@ -13,8 +13,8 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from config import UPLOAD_FOLDER
-from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold, get_compteur_zero_excluded_products, set_compteur_zero_excluded_products
+from config import UPLOAD_FOLDER, CUVE_LABELS, STOCK_ROULANT_CUVE_IDS
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, CamionCuve, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold, get_compteur_zero_excluded_products, set_compteur_zero_excluded_products, get_camion_cuve_seuil_litres, set_camion_cuve_seuil_litres
 from excel_importer import import_excel
 from processor import process_all_machines
 from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_all_produits_for_filter, get_machine_detail, get_person_detail
@@ -122,7 +122,8 @@ def mes_preferences():
     all_produits = get_all_produits_for_filter()
     jump_threshold = get_jump_threshold()
     compteur_zero_excluded = get_compteur_zero_excluded_products()
-    return render_template('mes_preferences.html', anomalie_configs=anomalie_configs, all_produits=all_produits, jump_threshold=jump_threshold, compteur_zero_excluded=compteur_zero_excluded)
+    camion_cuve_seuil = get_camion_cuve_seuil_litres()
+    return render_template('mes_preferences.html', anomalie_configs=anomalie_configs, all_produits=all_produits, jump_threshold=jump_threshold, compteur_zero_excluded=compteur_zero_excluded, camion_cuve_seuil=camion_cuve_seuil)
 
 
 @app.route('/mes-preferences/anomalie-types', methods=['POST'])
@@ -155,6 +156,12 @@ def update_user_anomalie_types():
     old_excluded = get_compteur_zero_excluded_products()
     excluded_changed = new_excluded != old_excluded
     set_compteur_zero_excluded_products(new_excluded)
+    try:
+        seuil_cam = float(request.form.get('camion_cuve_seuil_litres') or 0)
+    except (ValueError, TypeError):
+        seuil_cam = get_camion_cuve_seuil_litres()
+    if seuil_cam >= 0:
+        set_camion_cuve_seuil_litres(seuil_cam)
     db.session.commit()
     need_reprocess = threshold_changed or excluded_changed
     if need_reprocess:
@@ -229,6 +236,46 @@ def reset_data():
     except Exception as e:
         flash(f'Erreur : {str(e)}', 'error')
     return redirect(url_for('gestion_imports'))
+
+
+@app.route('/camion-cuve/ajouter', methods=['POST'])
+@login_required
+@can_import_required
+def camion_cuve_ajouter():
+    """Enregistre une machine comme camion cuve lié à un stock roulant."""
+    parc = (request.form.get('parc') or '').strip()[:50]
+    try:
+        stock = int(request.form.get('stock_roulant_num'))
+    except (ValueError, TypeError):
+        flash('Numéro de stock roulant invalide.', 'error')
+        return redirect(url_for('index'))
+    if stock not in STOCK_ROULANT_CUVE_IDS:
+        flash('Choisissez un stock roulant (4, 5, 9 ou 10).', 'error')
+        return redirect(url_for('index'))
+    if not parc:
+        flash('Sélectionnez une machine.', 'error')
+        return redirect(url_for('index'))
+    if CamionCuve.query.get(parc):
+        flash('Cette machine est déjà enregistrée comme camion cuve.', 'warning')
+        return redirect(url_for('index'))
+    db.session.add(CamionCuve(parc=parc, stock_roulant_num=stock))
+    db.session.commit()
+    flash('Camion cuve enregistré.', 'success')
+    return redirect(url_for('index'))
+
+
+@app.route('/camion-cuve/retirer', methods=['POST'])
+@login_required
+@can_import_required
+def camion_cuve_retirer():
+    """Retire une machine de la liste des camions cuve."""
+    parc = (request.form.get('parc') or '').strip()
+    cc = CamionCuve.query.get(parc)
+    if cc:
+        db.session.delete(cc)
+        db.session.commit()
+        flash('Camion cuve retiré de la liste.', 'success')
+    return redirect(url_for('index'))
 
 
 def _parse_date(s):
@@ -309,6 +356,8 @@ def index():
     all_personnes = get_all_personnes_for_filter()
     has_filter = bool(machine_filter or person_filter or date_from or date_to)
     can_import = current_user.role != 'visualisation'
+    camion_cuves = CamionCuve.query.order_by(CamionCuve.parc).all()
+    stock_roulant_choices = [(n, CUVE_LABELS.get(n, str(n))) for n in sorted(STOCK_ROULANT_CUVE_IDS)]
     return render_template('index.html',
         stats=stats,
         all_machines=all_machines,
@@ -318,7 +367,11 @@ def index():
         date_from_str=uf.date_from_str if uf else '',
         date_to_str=uf.date_to_str if uf else '',
         has_filter=has_filter,
-        can_import=can_import)
+        can_import=can_import,
+        camion_cuves=camion_cuves,
+        stock_roulant_choices=stock_roulant_choices,
+        camion_cuve_seuil=get_camion_cuve_seuil_litres(),
+        CUVE_LABELS=CUVE_LABELS)
 
 
 def _do_import(filepath, filename):
@@ -417,14 +470,14 @@ def download_template():
     """Télécharge un modèle Excel vide avec les colonnes attendues et des exemples."""
     import pandas as pd
     cols = ['Date', 'Heure', 'N° Parc', 'Service véhicule', 'Personne',
-            'Service personne', 'Produit', 'Quantité', 'Compteur', 'Unité']
+            'Service personne', 'Produit', 'Quantité', 'Compteur', 'Unité', 'Cuve']
     rows = [
         {'Date': '01/02/2025', 'Heure': '08:30:00', 'N° Parc': 'H56-001', 'Service véhicule': 'Fleet',
          'Personne': 'Dupont', 'Service personne': 'Opérations', 'Produit': 'Diesel',
-         'Quantité': 45.5, 'Compteur': 125000, 'Unité': 'L'},
+         'Quantité': 45.5, 'Compteur': 125000, 'Unité': 'L', 'Cuve': 1},
         {'Date': '02/02/2025', 'Heure': '14:15:00', 'N° Parc': 'H56-002', 'Service véhicule': 'Fleet',
          'Personne': 'Martin', 'Service personne': 'Opérations', 'Produit': 'Diesel',
-         'Quantité': 52.3, 'Compteur': 87500, 'Unité': 'L'},
+         'Quantité': 52.3, 'Compteur': 87500, 'Unité': 'L', 'Cuve': 4},
     ]
     df = pd.DataFrame(rows, columns=cols)
     buf = io.BytesIO()
@@ -538,7 +591,7 @@ def api_indicateurs_data():
 @login_required
 def api_indicateurs_values(dimension):
     """API retournant les valeurs disponibles pour une dimension (parc, personne, produit)."""
-    if dimension not in ('parc', 'personne', 'produit'):
+    if dimension not in ('parc', 'personne', 'produit', 'site', 'cuve'):
         return jsonify([])
     date_from = date_to = None
     try:

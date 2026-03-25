@@ -206,6 +206,8 @@
                 <option value="parc">Machine (parc)</option>
                 <option value="personne">Personne</option>
                 <option value="produit">Produit</option>
+                <option value="site">Site (cuve)</option>
+                <option value="cuve">Cuve</option>
                 <option value="type_anomalie">Type d'anomalie</option>
             </select>
         </div>
@@ -234,6 +236,8 @@
                 <option value="parc">Par machine</option>
                 <option value="personne">Par personne</option>
                 <option value="produit">Par produit</option>
+                <option value="site">Par site</option>
+                <option value="cuve">Par cuve</option>
             </select>
         </div>
         <div class="pivot-row" id="serie_filter_row">
@@ -287,12 +291,17 @@
 
     var METRIC_OPTIONS = [
         { id: 'quantite', label: 'Quantité carburant' },
+        { id: 'quantite_conso', label: 'Quantité conso (ajustée)' },
         { id: 'nb_releves', label: 'Nombre de relevés' },
         { id: 'compteur', label: 'Compteur' },
         { id: 'nb_anomalies', label: 'Nombre d\'anomalies' }
     ];
     var AGG_OPTIONS = {
         quantite: [
+            { id: 'sum', label: 'Somme' },
+            { id: 'avg', label: 'Moyenne' }
+        ],
+        quantite_conso: [
             { id: 'sum', label: 'Somme' },
             { id: 'avg', label: 'Moyenne' }
         ],
@@ -324,7 +333,12 @@
         }
         box.classList.remove('hidden');
         hint.style.display = 'block';
-        fetch(('{{ url_for("api_indicateurs_values", dimension="__DIM__") }}').replace('__DIM__', dim))
+        var df = document.getElementById('date_from').value;
+        var dt = document.getElementById('date_to').value;
+        var valsUrl = ('{{ url_for("api_indicateurs_values", dimension="__DIM__") }}').replace('__DIM__', dim);
+        if (df) valsUrl += (valsUrl.indexOf('?') >= 0 ? '&' : '?') + 'date_from=' + encodeURIComponent(df);
+        if (dt) valsUrl += (valsUrl.indexOf('?') >= 0 ? '&' : '?') + 'date_to=' + encodeURIComponent(dt);
+        fetch(valsUrl)
             .then(function(r) { return r.json(); })
             .then(function(values) {
                 serieValues = values || [];
@@ -434,6 +448,7 @@
             var m = chip.dataset.metric || 'quantite';
             var a = chip.dataset.agg || (m === 'nb_anomalies' ? 'count' : 'sum');
             if (m === 'nb_releves') a = 'count';
+            if (m === 'quantite_conso' && a !== 'avg' && a !== 'sum') a = 'sum';
             parts.push(m + '|' + a);
         });
         return parts.join(';');

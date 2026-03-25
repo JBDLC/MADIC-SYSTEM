@@ -3,7 +3,9 @@
 from datetime import datetime, date
 from collections import defaultdict
 
-from database import db, RawData, Anomalie, get_anomalie_filter_conditions
+from database import db, RawData, Anomalie, get_anomalie_filter_conditions, get_camion_cuve_parcs_set, get_camion_cuve_seuil_litres
+from config import cuve_num_to_site, format_cuve_label
+from consumption import effective_quantite_conso_carburant
 
 
 def _date_filter(query, model, date_from=None, date_to=None):
@@ -44,14 +46,16 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
     """
     Retourne les données agrégées pour le graphique.
     
-    x_axis: 'date' | 'parc' | 'personne' | 'produit' | 'type_anomalie'
+    x_axis: 'date' | 'parc' | 'personne' | 'produit' | 'site' | 'cuve' | 'type_anomalie'
     x_date_group: 'jour' | 'semaine' | 'mois' | 'annee' (si x_axis=date)
     y_metrics: liste de {'metric': ..., 'agg': ...}
-    serie_dim: None | 'parc' | 'personne' | 'produit' (pour plusieurs courbes)
+    serie_dim: None | 'parc' | 'personne' | 'produit' | 'site' | 'cuve'
     serie_filter: liste optionnelle de valeurs à inclure (ex: ['Parc1','Parc2']). Si fournie, seules ces séries sont affichées.
     """
     result = defaultdict(lambda: defaultdict(float))
     series_keys = set()
+    camions = get_camion_cuve_parcs_set()
+    seuil_camion = get_camion_cuve_seuil_litres()
     
     # Mapping colonnes RawData
     raw_col_map = {
@@ -71,6 +75,7 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
             RawData.produit,
             RawData.quantite,
             RawData.compteur,
+            RawData.cuve_num,
         )
         q = _date_filter(q, RawData, date_from, date_to)
         rows = q.all()
@@ -85,6 +90,10 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                 x_key = str(r.personne or '(vide)')
             elif x_axis == 'produit':
                 x_key = str(r.produit or '(vide)')
+            elif x_axis == 'site':
+                x_key = cuve_num_to_site(r.cuve_num) or '(non renseigné)'
+            elif x_axis == 'cuve':
+                x_key = format_cuve_label(r.cuve_num)
             else:
                 x_key = '?'
             
@@ -96,6 +105,10 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                     s_key = str(r.personne or '(vide)')
                 elif serie_dim == 'produit':
                     s_key = str(r.produit or '(vide)')
+                elif serie_dim == 'site':
+                    s_key = cuve_num_to_site(r.cuve_num) or '(non renseigné)'
+                elif serie_dim == 'cuve':
+                    s_key = format_cuve_label(r.cuve_num)
                 else:
                     s_key = 'Global'
             else:
@@ -111,6 +124,9 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                 val = 0
                 if ym['metric'] == 'quantite':
                     val = float(r.quantite or 0)
+                elif ym['metric'] == 'quantite_conso':
+                    val = effective_quantite_conso_carburant(
+                        r.parc, r.quantite, r.cuve_num, camions, seuil_camion)
                 elif ym['metric'] == 'compteur':
                     val = float(r.compteur or 0)
                 elif ym['metric'] == 'nb_releves':
@@ -134,6 +150,7 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
             RawData.parc,
             RawData.personne,
             RawData.produit,
+            RawData.cuve_num,
         )
         q = _date_filter(q, RawData, date_from, date_to)
         for r in q.all():
@@ -145,6 +162,10 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                 x_key = str(r.personne or '(vide)')
             elif x_axis == 'produit':
                 x_key = str(r.produit or '(vide)')
+            elif x_axis == 'site':
+                x_key = cuve_num_to_site(r.cuve_num) or '(non renseigné)'
+            elif x_axis == 'cuve':
+                x_key = format_cuve_label(r.cuve_num)
             else:
                 x_key = '?'
             if serie_dim == 'parc':
@@ -153,6 +174,10 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
                 s_key = str(r.personne or '(vide)')
             elif serie_dim == 'produit':
                 s_key = str(r.produit or '(vide)')
+            elif serie_dim == 'site':
+                s_key = cuve_num_to_site(r.cuve_num) or '(non renseigné)'
+            elif serie_dim == 'cuve':
+                s_key = format_cuve_label(r.cuve_num)
             else:
                 s_key = '__global__'
             counts[(x_key, s_key)] += 1
@@ -249,18 +274,46 @@ def get_indicator_data(x_axis, x_date_group, y_metrics, serie_dim, date_from=Non
 
 
 def get_available_values(dimension, date_from=None, date_to=None):
-    """Retourne les valeurs distinctes pour une dimension (parc, personne, produit)."""
+    """Retourne les valeurs distinctes pour une dimension (parc, personne, produit, site, cuve)."""
     q = db.session.query
     if dimension == 'parc':
         base = q(RawData.parc).distinct().filter(RawData.parc != '')
-    elif dimension == 'personne':
-        base = q(RawData.personne).distinct()
-    elif dimension == 'produit':
-        base = q(RawData.produit).distinct().filter(RawData.produit != '')
-    else:
-        return []
-    base = _date_filter(base, RawData, date_from, date_to)
-    rows = base.order_by(getattr(RawData, dimension)).all()
+        base = _date_filter(base, RawData, date_from, date_to)
+        rows = base.order_by(RawData.parc).all()
+        return [r[0] for r in rows if r[0]]
     if dimension == 'personne':
+        base = q(RawData.personne).distinct()
+        base = _date_filter(base, RawData, date_from, date_to)
+        rows = base.order_by(RawData.personne).all()
         return [r[0] if r[0] else '(vide)' for r in rows]
-    return [r[0] for r in rows if r[0]]
+    if dimension == 'produit':
+        base = q(RawData.produit).distinct().filter(RawData.produit != '')
+        base = _date_filter(base, RawData, date_from, date_to)
+        rows = base.order_by(RawData.produit).all()
+        return [r[0] for r in rows if r[0]]
+    if dimension == 'site':
+        base = q(RawData.cuve_num).distinct()
+        base = _date_filter(base, RawData, date_from, date_to)
+        rows = base.all()
+        seen = set()
+        out = []
+        for r in rows:
+            s = cuve_num_to_site(r[0])
+            key = s or '(non renseigné)'
+            if key not in seen:
+                seen.add(key)
+                out.append(key)
+        return sorted(out)
+    if dimension == 'cuve':
+        base = q(RawData.cuve_num).distinct()
+        base = _date_filter(base, RawData, date_from, date_to)
+        rows = base.all()
+        seen = set()
+        out = []
+        for r in rows:
+            lbl = format_cuve_label(r[0])
+            if lbl not in seen:
+                seen.add(lbl)
+                out.append(lbl)
+        return sorted(out)
+    return []
