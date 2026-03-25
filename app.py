@@ -171,7 +171,7 @@ def update_user_anomalie_types():
         except Exception as e:
             flash(f'Préférences enregistrées mais erreur au recalcul : {str(e)}', 'error')
     else:
-        flash('Vos préférences ont été enregistrées. Le décompte est à jour sur le dashboard.', 'success')
+        flash('Vos préférences ont été enregistrées. Le décompte est à jour sur le tableau de bord.', 'success')
     return redirect(url_for('index'))
 
 
@@ -241,7 +241,7 @@ def reset_data():
 @app.route('/camion-cuve')
 @login_required
 def camion_cuve_page():
-    """Paramétrage des machines camion cuve (hors dashboard)."""
+    """Paramétrage des machines camion cuve (hors tableau de bord)."""
     can_import = current_user.role != 'visualisation'
     camion_cuves = CamionCuve.query.order_by(CamionCuve.parc).all()
     stock_roulant_choices = [(n, CUVE_LABELS.get(n, str(n))) for n in sorted(STOCK_ROULANT_CUVE_IDS)]
@@ -343,6 +343,35 @@ def famille_supprimer(fid):
     return redirect(url_for('famille_page'))
 
 
+def _apply_famille_to_parc(parc, famille_id):
+    """Affecte une famille à un parc (famille_id : int ou None)."""
+    mf = MachineFamille.query.get(parc)
+    if famille_id is None:
+        if mf:
+            mf.famille_id = None
+        else:
+            db.session.add(MachineFamille(parc=parc, famille_id=None))
+    else:
+        if mf:
+            mf.famille_id = famille_id
+        else:
+            db.session.add(MachineFamille(parc=parc, famille_id=famille_id))
+
+
+def _parse_famille_id_form():
+    """Retourne (famille_id ou None, erreur bool)."""
+    raw_fid = request.form.get('famille_id')
+    if raw_fid is not None and str(raw_fid).strip() != '':
+        try:
+            fid = int(raw_fid)
+        except (ValueError, TypeError):
+            return None, True
+        if Famille.query.get(fid) is None:
+            return None, True
+        return fid, False
+    return None, False
+
+
 @app.route('/famille/assigner', methods=['POST'])
 @login_required
 @can_import_required
@@ -351,29 +380,32 @@ def famille_assigner():
     if not parc:
         flash('Machine non précisée.', 'error')
         return redirect(url_for('famille_page'))
-    raw_fid = request.form.get('famille_id')
-    fid = None
-    if raw_fid is not None and str(raw_fid).strip() != '':
-        try:
-            fid = int(raw_fid)
-        except (ValueError, TypeError):
-            fid = None
-    if fid is not None and Famille.query.get(fid) is None:
+    fid, err = _parse_famille_id_form()
+    if err:
         flash('Famille invalide.', 'error')
         return redirect(url_for('famille_page'))
-    mf = MachineFamille.query.get(parc)
-    if fid is None:
-        if mf:
-            mf.famille_id = None
-        else:
-            db.session.add(MachineFamille(parc=parc, famille_id=None))
-    else:
-        if mf:
-            mf.famille_id = fid
-        else:
-            db.session.add(MachineFamille(parc=parc, famille_id=fid))
+    _apply_famille_to_parc(parc, fid)
     db.session.commit()
     flash('Affectation enregistrée.', 'success')
+    return redirect(url_for('famille_page'))
+
+
+@app.route('/famille/assigner-groupe', methods=['POST'])
+@login_required
+@can_import_required
+def famille_assigner_groupe():
+    parcs = list({(p or '').strip()[:50] for p in request.form.getlist('parcs') if (p or '').strip()})
+    fid, err = _parse_famille_id_form()
+    if err:
+        flash('Famille invalide.', 'error')
+        return redirect(url_for('famille_page'))
+    if not parcs:
+        flash('Cochez au moins une machine.', 'warning')
+        return redirect(url_for('famille_page'))
+    for parc in parcs:
+        _apply_famille_to_parc(parc, fid)
+    db.session.commit()
+    flash(f'{len(parcs)} machine(s) affectée(s).', 'success')
     return redirect(url_for('famille_page'))
 
 
@@ -391,7 +423,7 @@ def _parse_date(s):
 @app.route('/', methods=['GET', 'POST'])
 @login_required
 def index():
-    """Page d'accueil / Dashboard. Filtres persistants par utilisateur."""
+    """Page d'accueil / tableau de bord. Filtres persistants par utilisateur."""
     machine_filter = None
     person_filter = None
     date_from = date_to = None

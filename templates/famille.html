@@ -64,22 +64,61 @@
 
 <div class="card">
     <h2 style="margin-top: 0;">Affectation par machine</h2>
-    <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">Machines présentes dans les données importées. Chaque changement est enregistré immédiatement.</p>
+    <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">
+        Filtrez la liste, cochez une ou plusieurs machines puis choisissez une famille et cliquez sur <strong>Affecter la sélection</strong>.
+        Le menu par ligne permet encore un changement immédiat pour une machine seule.
+    </p>
+
     {% if machines %}
+    <div style="margin-bottom: 14px;">
+        <label for="filter-machines" style="font-weight: 600; margin-right: 8px;">Filtrer</label>
+        <input type="search" id="filter-machines" placeholder="Rechercher une machine…" autocomplete="off" style="min-width: 280px; max-width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.95rem;">
+    </div>
+
+    {% if can_import %}
+    <form id="bulk-form" method="post" action="{{ url_for('famille_assigner_groupe') }}" style="margin-bottom: 16px; padding: 14px; background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+            <button type="button" class="btn btn-secondary" id="btn-check-visible" style="font-size: 0.85rem;">Cocher les visibles</button>
+            <button type="button" class="btn btn-secondary" id="btn-check-all" style="font-size: 0.85rem;">Tout cocher</button>
+            <button type="button" class="btn btn-secondary" id="btn-uncheck-all" style="font-size: 0.85rem;">Tout décocher</button>
+            <span style="width: 1px; height: 24px; background: #dee2e6; margin: 0 4px;"></span>
+            <label for="bulk-famille" style="font-size: 0.85rem; font-weight: 600;">Famille cible</label>
+            <select name="famille_id" id="bulk-famille" style="min-width: 200px; padding: 6px 10px; border-radius: 6px; border: 1px solid #ddd;">
+                <option value="">(Sans famille)</option>
+                {% for f in familles %}
+                <option value="{{ f.id }}">{{ f.nom }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary">Affecter la sélection</button>
+        </div>
+    </form>
+    {% endif %}
+
+    <div style="overflow-x: auto;">
     <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
         <thead>
             <tr style="text-align: left; border-bottom: 1px solid #e9ecef;">
+                {% if can_import %}
+                <th style="padding: 8px 8px 8px 0; width: 40px;">
+                    <input type="checkbox" id="master-check" title="Cocher / décocher les lignes visibles">
+                </th>
+                {% endif %}
                 <th style="padding: 8px 0;">Machine</th>
                 <th style="padding: 8px 0;">Famille</th>
             </tr>
         </thead>
-        <tbody>
+        <tbody id="machine-tbody">
             {% for m in machines %}
-            <tr style="border-bottom: 1px solid #f0f0f0;">
+            <tr class="machine-row" data-search="{{ m|lower }}">
+                {% if can_import %}
+                <td style="padding: 8px 8px 8px 0; vertical-align: middle;">
+                    <input type="checkbox" class="row-check" name="parcs" value="{{ m|e }}" form="bulk-form">
+                </td>
+                {% endif %}
                 <td style="padding: 8px 0; vertical-align: middle;">{{ m }}</td>
                 <td style="padding: 8px 0;">
                     <form method="post" action="{{ url_for('famille_assigner') }}" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
-                        <input type="hidden" name="parc" value="{{ m }}">
+                        <input type="hidden" name="parc" value="{{ m|e }}">
                         <select name="famille_id" style="min-width: 220px; padding: 6px 10px; border-radius: 6px; border: 1px solid #ddd;" {% if can_import %}onchange="this.form.submit()"{% else %}disabled{% endif %}>
                             <option value="" {% if assign.get(m) is none %}selected{% endif %}>(Sans famille)</option>
                             {% for f in familles %}
@@ -92,6 +131,66 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
+
+    <style>
+    .machine-row.machine-row-hidden { display: none; }
+    </style>
+    {% if can_import %}
+    <script>
+    (function() {
+        var filterEl = document.getElementById('filter-machines');
+        var master = document.getElementById('master-check');
+        function visibleRows() {
+            return Array.prototype.slice.call(document.querySelectorAll('.machine-row')).filter(function(row) {
+                return !row.classList.contains('machine-row-hidden');
+            });
+        }
+        function rowChecks(rows) {
+            return rows.map(function(row) { return row.querySelector('.row-check'); }).filter(Boolean);
+        }
+        filterEl.addEventListener('input', function() {
+            var q = this.value.trim().toLowerCase();
+            document.querySelectorAll('.machine-row').forEach(function(row) {
+                var hay = (row.getAttribute('data-search') || '');
+                row.classList.toggle('machine-row-hidden', q.length > 0 && hay.indexOf(q) === -1);
+            });
+            if (master) master.checked = false;
+        });
+        document.getElementById('btn-check-visible').addEventListener('click', function() {
+            rowChecks(visibleRows()).forEach(function(cb) { cb.checked = true; });
+            if (master) master.checked = true;
+        });
+        document.getElementById('btn-check-all').addEventListener('click', function() {
+            document.querySelectorAll('.row-check').forEach(function(cb) { cb.checked = true; });
+            if (master) master.checked = true;
+        });
+        document.getElementById('btn-uncheck-all').addEventListener('click', function() {
+            document.querySelectorAll('.row-check').forEach(function(cb) { cb.checked = false; });
+            if (master) master.checked = false;
+        });
+        if (master) {
+            master.addEventListener('change', function() {
+                var on = master.checked;
+                rowChecks(visibleRows()).forEach(function(cb) { cb.checked = on; });
+            });
+        }
+    })();
+    </script>
+    {% else %}
+    <script>
+    (function() {
+        var filterEl = document.getElementById('filter-machines');
+        filterEl.addEventListener('input', function() {
+            var q = this.value.trim().toLowerCase();
+            document.querySelectorAll('.machine-row').forEach(function(row) {
+                var hay = (row.getAttribute('data-search') || '');
+                row.classList.toggle('machine-row-hidden', q.length > 0 && hay.indexOf(q) === -1);
+            });
+        });
+    })();
+    </script>
+    {% endif %}
     {% else %}
     <p style="color: var(--text-muted);">Aucune machine dans les données. <a href="{{ url_for('gestion_imports') }}">Importer des données</a>.</p>
     {% endif %}
