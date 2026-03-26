@@ -62,8 +62,10 @@ def get_stats(machine_filter=None, person_filter=None, user_id=None, date_from=N
     q_total = db.session.query(RawData.parc, RawData.quantite, RawData.cuve_num)
     q_total = _date_filter(q_total, RawData, date_from, date_to)
     rows_total = q_total.all()
+    nb_releves_carburant = len(rows_total)
+    total_carburant_brut = sum(float(r.quantite or 0) for r in rows_total)
     if not camions:
-        total_carburant = sum(float(r.quantite or 0) for r in rows_total)
+        total_carburant = total_carburant_brut
     else:
         total_carburant = sum(
             effective_quantite_conso_carburant(
@@ -93,11 +95,29 @@ def get_stats(machine_filter=None, person_filter=None, user_id=None, date_from=N
     q_anom = _date_filter(q_anom, Anomalie, date_from, date_to)
     nb_anomalies = q_anom.count()
 
+    anomalies_par_type = []
+    if user_id:
+        q_types = db.session.query(
+            Anomalie.type_anomalie,
+            func.count(Anomalie.id).label('cnt'),
+        ).filter(get_anomalie_filter_conditions(user_id, for_include_in_count=True))
+        q_types = _date_filter(q_types, Anomalie, date_from, date_to)
+        anomalies_par_type = (
+            q_types.group_by(Anomalie.type_anomalie)
+            .order_by(func.count(Anomalie.id).desc())
+            .all()
+        )
+
     return {
         'total_carburant': total_carburant,
+        'total_carburant_brut': total_carburant_brut,
+        'nb_releves_carburant': nb_releves_carburant,
+        'camions_cuve_configures': bool(camions),
+        'seuil_camion_litres': seuil_camion,
         'top_machines': top_machines,
         'top_personnes': top_personnes,
         'nb_anomalies': nb_anomalies,
+        'anomalies_par_type': anomalies_par_type,
     }
 
 

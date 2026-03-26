@@ -48,15 +48,98 @@
 </div>
 
 <div class="grid" style="margin-bottom: 24px;">
-    <div class="stat-card">
+    <button type="button" class="stat-card stat-card-interactive" id="btn-stat-carburant"
+            aria-haspopup="dialog" aria-controls="dialog-carburant"
+            title="Voir le détail du total carburant">
         <div class="label">Total carburant</div>
         <div class="value">{{ "%.2f"|format(stats.total_carburant) }} L</div>
-    </div>
-    <div class="stat-card">
+        <span class="stat-card-hint">Cliquer pour le détail</span>
+    </button>
+    <button type="button" class="stat-card stat-card-interactive" id="btn-stat-anomalies"
+            aria-haspopup="dialog" aria-controls="dialog-anomalies"
+            title="Voir le détail des anomalies">
         <div class="label">Anomalies détectées</div>
         <div class="value" style="color: {% if stats.nb_anomalies %}var(--danger){% else %}var(--success){% endif %};">{{ stats.nb_anomalies }}</div>
-    </div>
+        <span class="stat-card-hint">Cliquer pour le détail</span>
+    </button>
 </div>
+
+<dialog id="dialog-carburant" class="dashboard-detail-dialog" aria-labelledby="dialog-carburant-title">
+    <h2 id="dialog-carburant-title">Détail — total carburant</h2>
+    <p class="dialog-lead">Ce total correspond à la somme des quantités sur les relevés bruts, avec les mêmes filtres de <strong>période</strong> que le formulaire en haut de page (les filtres machines / personnes n’influencent pas ce chiffre).</p>
+    <dl class="dialog-dl">
+        <dt>Période</dt>
+        <dd>
+            {% if date_from_str and date_to_str %}
+                Du {{ date_from_str }} au {{ date_to_str }}
+            {% elif date_from_str %}
+                À partir du {{ date_from_str }}
+            {% elif date_to_str %}
+                Jusqu’au {{ date_to_str }}
+            {% else %}
+                Toutes les dates (pas de borne appliquée)
+            {% endif %}
+        </dd>
+        <dt>Nombre de relevés</dt>
+        <dd>{{ stats.nb_releves_carburant }}</dd>
+        <dt>Volume total affiché</dt>
+        <dd><strong>{{ "%.2f"|format(stats.total_carburant) }} L</strong></dd>
+        {% if stats.camions_cuve_configures %}
+        <dt>Volume brut (somme des quantités)</dt>
+        <dd>{{ "%.2f"|format(stats.total_carburant_brut) }} L</dd>
+        <dt>Règle camions cuve</dt>
+        <dd>Active : pour les parcs configurés comme camion cuve, la consommation prise en compte est ajustée (seuil {{ "%.0f"|format(stats.seuil_camion_litres or 0) }} L par défaut — réglable dans <a href="{{ url_for('mes_preferences') }}">Mes préférences</a>).</dd>
+        {% endif %}
+    </dl>
+    <form method="dialog" class="dialog-actions">
+        <button type="submit" class="btn btn-primary">Fermer</button>
+    </form>
+</dialog>
+
+<dialog id="dialog-anomalies" class="dashboard-detail-dialog" aria-labelledby="dialog-anomalies-title">
+    <h2 id="dialog-anomalies-title">Détail — anomalies détectées</h2>
+    <p class="dialog-lead">Le décompte utilise la <strong>même période</strong> que le bandeau du haut et respecte vos préférences d’inclusion des types d’anomalies (<a href="{{ url_for('mes_preferences') }}">Mes préférences</a>).</p>
+    <dl class="dialog-dl">
+        <dt>Période</dt>
+        <dd>
+            {% if date_from_str and date_to_str %}
+                Du {{ date_from_str }} au {{ date_to_str }}
+            {% elif date_from_str %}
+                À partir du {{ date_from_str }}
+            {% elif date_to_str %}
+                Jusqu’au {{ date_to_str }}
+            {% else %}
+                Toutes les dates
+            {% endif %}
+        </dd>
+        <dt>Total</dt>
+        <dd><strong>{{ stats.nb_anomalies }}</strong> anomalie(s)</dd>
+    </dl>
+    {% if stats.anomalies_par_type %}
+    <h3 class="dialog-subtitle">Répartition par type</h3>
+    <table class="dialog-table">
+        <thead><tr><th>Type</th><th>Nombre</th></tr></thead>
+        <tbody>
+            {% for typ, cnt in stats.anomalies_par_type %}
+            <tr>
+                <td>{{ typ if typ is not none and typ != '' else '(non renseigné)' }}</td>
+                <td>{{ cnt }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% elif stats.nb_anomalies %}
+    <p class="dialog-muted">Répartition par type indisponible.</p>
+    {% else %}
+    <p class="dialog-muted">Aucune anomalie sur cette période.</p>
+    {% endif %}
+    <p class="dialog-actions-row">
+        <a href="{{ url_for('rapports') }}{% if date_from_str or date_to_str %}?{% endif %}{% if date_from_str %}date_from={{ date_from_str }}{% endif %}{% if date_from_str and date_to_str %}&{% endif %}{% if date_to_str %}date_to={{ date_to_str }}{% endif %}" class="btn btn-add">Voir la page Rapports</a>
+    </p>
+    <form method="dialog" class="dialog-actions">
+        <button type="submit" class="btn btn-primary">Fermer</button>
+    </form>
+</dialog>
 
 <div class="card">
     <div class="page-header" style="margin-bottom: 16px;">
@@ -173,6 +256,65 @@
 </div>
 
 <style>
+.stat-card-interactive {
+    width: 100%;
+    margin: 0;
+    padding: 20px;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    border: 1px solid #e9ecef;
+    background: var(--card-bg);
+    transition: box-shadow 0.15s, border-color 0.15s;
+}
+.stat-card-interactive:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    border-color: var(--accent);
+}
+.stat-card-interactive:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+.stat-card-hint {
+    display: block;
+    margin-top: 10px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+.dashboard-detail-dialog {
+    max-width: min(520px, 96vw);
+    padding: 0;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+.dashboard-detail-dialog::backdrop {
+    background: rgba(0,0,0,0.45);
+}
+.dashboard-detail-dialog h2 {
+    margin: 0 0 12px;
+    font-size: 1.15rem;
+}
+.dashboard-detail-dialog .dialog-subtitle {
+    margin: 16px 0 8px;
+    font-size: 1rem;
+}
+.dashboard-detail-dialog > *:not(form) { padding-left: 20px; padding-right: 20px; }
+.dashboard-detail-dialog > h2:first-of-type { padding-top: 20px; }
+.dialog-lead { font-size: 0.9rem; color: var(--text-muted); line-height: 1.45; margin-bottom: 16px; }
+.dialog-dl { margin: 0 0 8px; }
+.dialog-dl dt { font-size: 0.8rem; color: var(--text-muted); margin-top: 10px; }
+.dialog-dl dt:first-child { margin-top: 0; }
+.dialog-dl dd { margin: 4px 0 0; }
+.dialog-muted { font-size: 0.9rem; color: var(--text-muted); }
+.dialog-table { width: 100%; font-size: 0.9rem; margin-bottom: 12px; }
+.dialog-table th, .dialog-table td { padding: 8px 10px; }
+.dialog-actions { padding: 12px 20px 20px; margin: 0; border-top: 1px solid #eee; background: #fafbfc; border-radius: 0 0 10px 10px; }
+.dialog-actions-row { padding: 0 20px 12px; margin: 0; }
 .dashboard-filter-box {
     background: #f8f9fa;
     border-radius: 8px;
@@ -205,6 +347,13 @@
 
 <script>
 (function() {
+    var dc = document.getElementById('dialog-carburant');
+    var da = document.getElementById('dialog-anomalies');
+    var bc = document.getElementById('btn-stat-carburant');
+    var ba = document.getElementById('btn-stat-anomalies');
+    if (bc && dc) bc.addEventListener('click', function() { dc.showModal(); });
+    if (ba && da) ba.addEventListener('click', function() { da.showModal(); });
+
     var searchMach = document.getElementById('search-machines');
     var searchPers = document.getElementById('search-personnes');
     if (searchMach) {
