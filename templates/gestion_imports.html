@@ -37,6 +37,25 @@
 </div>
 <script>document.getElementById('btn-import').onclick = function() { document.getElementById('file-input').click(); };</script>
 
+<div class="card" style="margin-bottom: 24px;">
+    <h2>Importer CP30</h2>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Import dedie de l'export CP30 (onglet peremption). Les doublons sont automatiquement ignores.</p>
+    <div style="display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+        <div class="file-input-wrapper" style="display: inline-block;">
+            <form action="{{ url_for('importer_cp30') }}" method="post" enctype="multipart/form-data" style="display: inline;">
+                <button type="button" class="btn btn-primary" id="btn-import-cp30">Selectionner un fichier CP30</button>
+                <input type="file" name="file" id="file-input-cp30" accept=".xlsx,.xls,.XLS,.XLSX" onchange="if(this.files.length) this.form.submit();">
+            </form>
+        </div>
+        <form action="{{ url_for('importer_cp30') }}" method="post" enctype="multipart/form-data" style="display: flex; flex: 1; min-width: 280px; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <input type="text" name="filepath" placeholder="C:\Users\...\Downloads\CP30.xlsx" style="flex: 1; min-width: 200px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px;">
+            <button type="submit" class="btn btn-secondary">Importer CP30 par chemin</button>
+        </form>
+        <a href="{{ url_for('cp30_page') }}" class="btn btn-secondary">Ouvrir la page CP30</a>
+    </div>
+</div>
+<script>document.getElementById('btn-import-cp30').onclick = function() { document.getElementById('file-input-cp30').click(); };</script>
+
 <div class="card">
     <h2>Liste des imports</h2>
     <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">

@@ -14,8 +14,9 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import UPLOAD_FOLDER, CUVE_LABELS, STOCK_ROULANT_CUVE_IDS
-from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, CamionCuve, Famille, MachineFamille, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold, get_compteur_zero_excluded_products, set_compteur_zero_excluded_products, get_camion_cuve_seuil_litres, set_camion_cuve_seuil_litres
+from database import init_db, db, RawData, ProcessedData, Anomalie, HistoryPeriod, User, UserFilter, SavedIndicator, AnomalieTypeConfig, UserAnomalieConfig, CamionCuve, Famille, MachineFamille, CP30Data, get_user_anomalie_configs, get_jump_threshold, set_jump_threshold, get_compteur_zero_excluded_products, set_compteur_zero_excluded_products, get_camion_cuve_seuil_litres, set_camion_cuve_seuil_litres
 from excel_importer import import_excel
+from cp30_importer import import_cp30_excel
 from processor import process_all_machines
 from reports import get_stats, get_consumption_by_machine, get_consumption_by_person, get_anomalies_detail, get_date_range, generate_pdf, generate_excel, get_all_machines_for_filter, get_all_personnes_for_filter, get_all_produits_for_filter, get_machine_detail, get_person_detail, get_cuves_summary, get_cuve_detail
 from indicators import get_indicator_data, get_available_values
@@ -667,6 +668,160 @@ def indicateurs():
     return render_template('indicateurs.html',
         date_min_str=_to_iso(date_min),
         date_max_str=_to_iso(date_max))
+
+
+@app.route('/cp30')
+@login_required
+def cp30_page():
+    """Page CP30: suivi mensuel, detail et retards."""
+    date_from = _parse_date(request.args.get('date_from'))
+    date_to = _parse_date(request.args.get('date_to'))
+    selected_types = set(request.args.getlist('vehicle_type'))
+    selected_sites = set(request.args.getlist('site'))
+    selected_services = set(request.args.getlist('service'))
+    selected_personnes = set(request.args.getlist('demandeur'))
+    selected_statuts = set(request.args.getlist('statut'))
+    selected_ident = (request.args.get('ident') or '').strip()
+
+    q = CP30Data.query
+    if date_from:
+        q = q.filter(CP30Data.date_peremption >= date_from)
+    if date_to:
+        q = q.filter(CP30Data.date_peremption <= date_to)
+    if selected_types:
+        q = q.filter(CP30Data.vehicle_type.in_(selected_types))
+    if selected_sites:
+        q = q.filter(CP30Data.site.in_(selected_sites))
+    if selected_services:
+        q = q.filter(CP30Data.service.in_(selected_services))
+    if selected_personnes:
+        q = q.filter(CP30Data.demandeur.in_(selected_personnes))
+    if selected_statuts:
+        q = q.filter(CP30Data.statut.in_(selected_statuts))
+    if selected_ident:
+        q = q.filter(CP30Data.parc_ou_immat.ilike(f"%{selected_ident}%"))
+
+    rows = q.order_by(CP30Data.date_peremption.asc(), CP30Data.site.asc(), CP30Data.parc_ou_immat.asc()).all()
+    today = datetime.utcnow().date()
+    display_rows = []
+    for r in rows:
+        delta = None
+        status_dynamic = 'Date non renseignee'
+        if r.date_peremption:
+            delta = (r.date_peremption - today).days
+            if delta < 0:
+                status_dynamic = f"En retard de {abs(delta)} jours"
+            elif delta == 0:
+                status_dynamic = "A faire aujourd'hui"
+            else:
+                status_dynamic = f"A faire dans {delta} jours"
+        display_rows.append({
+            'id': r.id,
+            'date_dernier_rdv': r.date_dernier_rdv,
+            'date_peremption': r.date_peremption,
+            'site': r.site or '',
+            'parc_ou_immat': r.parc_ou_immat or '',
+            'demandeur': r.demandeur or '',
+            'service': r.service or '',
+            'entreprise': r.entreprise or '',
+            'km': r.km,
+            'statut': r.statut or '',
+            'vehicle_type': r.vehicle_type,
+            'delta_days': delta,
+            'status_dynamic': status_dynamic,
+            'co': (r.site or '') if (r.site or '').upper().startswith('CO') else '',
+        })
+
+    # KPI: nombre de vehicules par service et par CO
+    service_co = {}
+    for r in display_rows:
+        service = r['service'] or '(Sans service)'
+        co = r['co'] or '(Hors CO)'
+        service_co.setdefault(service, {}).setdefault(co, set()).add(r['parc_ou_immat'] or f"id-{r['id']}")
+    service_co_summary = []
+    all_cos = sorted({co for v in service_co.values() for co in v.keys()})
+    for service, co_map in sorted(service_co.items(), key=lambda x: x[0]):
+        item = {'service': service, 'total': sum(len(s) for s in co_map.values()), 'by_co': {}}
+        for co in all_cos:
+            item['by_co'][co] = len(co_map.get(co, set()))
+        service_co_summary.append(item)
+
+    # Groupement mensuel
+    month_counts = {}
+    for r in display_rows:
+        if r['date_peremption']:
+            key = r['date_peremption'].strftime('%Y-%m')
+            month_counts[key] = month_counts.get(key, 0) + 1
+    monthly = [{'month': k, 'count': v} for k, v in sorted(month_counts.items())]
+
+    all_sites = [v[0] for v in db.session.query(CP30Data.site).filter(CP30Data.site.isnot(None), CP30Data.site != '').distinct().order_by(CP30Data.site.asc()).all()]
+    all_services = [v[0] for v in db.session.query(CP30Data.service).filter(CP30Data.service.isnot(None), CP30Data.service != '').distinct().order_by(CP30Data.service.asc()).all()]
+    all_demandeurs = [v[0] for v in db.session.query(CP30Data.demandeur).filter(CP30Data.demandeur.isnot(None), CP30Data.demandeur != '').distinct().order_by(CP30Data.demandeur.asc()).all()]
+    all_statuts = [v[0] for v in db.session.query(CP30Data.statut).filter(CP30Data.statut.isnot(None), CP30Data.statut != '').distinct().order_by(CP30Data.statut.asc()).all()]
+
+    return render_template(
+        'cp30.html',
+        rows=display_rows,
+        monthly=monthly,
+        service_co_summary=service_co_summary,
+        all_cos=all_cos,
+        all_sites=all_sites,
+        all_services=all_services,
+        all_demandeurs=all_demandeurs,
+        all_statuts=all_statuts,
+        selected_types=selected_types,
+        selected_sites=selected_sites,
+        selected_services=selected_services,
+        selected_personnes=selected_personnes,
+        selected_statuts=selected_statuts,
+        selected_ident=selected_ident,
+        date_from_str=request.args.get('date_from', ''),
+        date_to_str=request.args.get('date_to', ''),
+    )
+
+
+@app.route('/importer-cp30', methods=['POST'])
+@login_required
+@can_import_required
+def importer_cp30():
+    """Import d'un export CP30 (.xlsx/.xls) avec dedoublonnage incremental."""
+    path_from_form = (request.form.get('filepath') or '').strip()
+    try:
+        if path_from_form and os.path.isfile(path_from_form):
+            ext = path_from_form.lower().rsplit('.', 1)[-1] if '.' in path_from_form else ''
+            if ext not in ALLOWED_EXTENSIONS:
+                flash('Format non autorise. Utilisez .xlsx ou .xls', 'error')
+                return redirect(url_for('gestion_imports'))
+            nb_imported, nb_skipped = import_cp30_excel(path_from_form, os.path.basename(path_from_form))
+        else:
+            if 'file' not in request.files:
+                flash('Aucun fichier CP30 fourni.', 'error')
+                return redirect(url_for('gestion_imports'))
+            file = request.files['file']
+            if not file or file.filename == '':
+                flash('Aucun fichier CP30 selectionne.', 'error')
+                return redirect(url_for('gestion_imports'))
+            if not allowed_file(file.filename):
+                flash('Format non autorise. Utilisez .xlsx ou .xls', 'error')
+                return redirect(url_for('gestion_imports'))
+            filename = safe_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            try:
+                nb_imported, nb_skipped = import_cp30_excel(filepath, filename)
+            finally:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+
+        if nb_imported > 0:
+            flash(f'CP30: {nb_imported} lignes importees, {nb_skipped} doublons ignores.', 'success')
+        elif nb_skipped > 0:
+            flash(f'CP30: toutes les lignes ({nb_skipped}) etaient deja presentes.', 'warning')
+        else:
+            flash('CP30: aucune ligne valide detectee.', 'warning')
+    except Exception as e:
+        flash(f'Erreur import CP30: {str(e)}', 'error')
+    return redirect(url_for('cp30_page'))
 
 
 @app.route('/api/indicateurs/data')

@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title"><span class="sep">|</span> CP30</h1>
+    <div class="page-actions">
+        <a href="{{ url_for('gestion_imports') }}" class="btn btn-secondary">Gestion imports</a>
+    </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, msg in messages %}
+            <div class="alert alert-{{ category if category in ['success','error','warning'] else 'success' }}">{{ msg }}</div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<div class="card">
+    <h2>Importer un export CP30</h2>
+    <div style="display:flex; gap:10px; flex-wrap: wrap; align-items:flex-end;">
+        <div class="file-input-wrapper" style="display:inline-block;">
+            <form action="{{ url_for('importer_cp30') }}" method="post" enctype="multipart/form-data" style="display:inline;">
+                <button type="button" class="btn btn-primary" id="btn-import-cp30">Selectionner un fichier CP30</button>
+                <input type="file" name="file" id="file-input-cp30" accept=".xlsx,.xls" onchange="if(this.files.length) this.form.submit();">
+            </form>
+        </div>
+        <form action="{{ url_for('importer_cp30') }}" method="post" style="display:flex; flex:1; min-width:280px; gap:8px; flex-wrap:wrap; align-items:center;">
+            <input type="text" name="filepath" placeholder="C:\Users\...\Downloads\CP30.xlsx" style="flex:1; min-width:220px;">
+            <button class="btn btn-secondary" type="submit">Importer par chemin</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Filtres</h2>
+    <form method="get" action="{{ url_for('cp30_page') }}" style="display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:10px;">
+        <div><label>Date debut</label><input type="date" name="date_from" value="{{ date_from_str }}"></div>
+        <div><label>Date fin</label><input type="date" name="date_to" value="{{ date_to_str }}"></div>
+        <div><label>Identifiant (Parc/Immat)</label><input type="text" name="ident" value="{{ selected_ident }}" placeholder="P12-051 ou GR-123-TR"></div>
+        <div>
+            <label>Type vehicule</label>
+            <select name="vehicle_type" multiple size="2" style="width:100%; padding:8px;">
+                <option value="interne" {% if 'interne' in selected_types %}selected{% endif %}>Interne (P...)</option>
+                <option value="prestataire" {% if 'prestataire' in selected_types %}selected{% endif %}>Prestataire (immat)</option>
+            </select>
+        </div>
+        <div>
+            <label>Site</label>
+            <select name="site" multiple size="4" style="width:100%; padding:8px;">
+                {% for v in all_sites %}<option value="{{ v }}" {% if v in selected_sites %}selected{% endif %}>{{ v }}</option>{% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Service</label>
+            <select name="service" multiple size="4" style="width:100%; padding:8px;">
+                {% for v in all_services %}<option value="{{ v }}" {% if v in selected_services %}selected{% endif %}>{{ v }}</option>{% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Personne</label>
+            <select name="demandeur" multiple size="4" style="width:100%; padding:8px;">
+                {% for v in all_demandeurs %}<option value="{{ v }}" {% if v in selected_personnes %}selected{% endif %}>{{ v }}</option>{% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Statut</label>
+            <select name="statut" multiple size="4" style="width:100%; padding:8px;">
+                {% for v in all_statuts %}<option value="{{ v }}" {% if v in selected_statuts %}selected{% endif %}>{{ v }}</option>{% endfor %}
+            </select>
+        </div>
+        <div style="display:flex; gap:8px; align-items:flex-end;">
+            <button class="btn btn-primary" type="submit">Appliquer</button>
+            <a class="btn btn-secondary" href="{{ url_for('cp30_page') }}">Effacer</a>
+        </div>
+    </form>
+</div>
+
+<div class="grid" style="margin-bottom:20px;">
+    <div class="stat-card">
+        <div class="label">Lignes CP30 filtrees</div>
+        <div class="value">{{ rows|length }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Mois couverts</div>
+        <div class="value">{{ monthly|length }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Vue mensuelle</h2>
+    {% if monthly %}
+        <table>
+            <thead><tr><th>Mois</th><th>CP30</th></tr></thead>
+            <tbody>
+            {% for m in monthly %}
+                <tr><td>{{ m.month }}</td><td>{{ m.count }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p style="color:var(--text-muted);">Aucune donnee CP30 sur cette selection.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Vehicules par service et par CO</h2>
+    {% if service_co_summary %}
+    <table>
+        <thead>
+            <tr>
+                <th>Service</th>
+                {% for co in all_cos %}<th>{{ co }}</th>{% endfor %}
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in service_co_summary %}
+            <tr>
+                <td>{{ item.service }}</td>
+                {% for co in all_cos %}<td>{{ item.by_co[co] }}</td>{% endfor %}
+                <td><strong>{{ item.total }}</strong></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted);">Aucune repartition disponible.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Liste detaillee (clic sur la date d'echeance)</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Echeance</th>
+                <th>Statut dynamique</th>
+                <th>Type</th>
+                <th>Parc / Immat</th>
+                <th>Site</th>
+                <th>Service</th>
+                <th>Demandeur</th>
+                <th>KM</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td>
+                    {% if r.date_peremption %}
+                    <a href="#" onclick="toggleCp30Detail('cp30-{{ r.id }}'); return false;">
+                        {{ r.date_peremption.strftime('%d/%m/%Y') }}
+                    </a>
+                    {% else %}-{% endif %}
+                </td>
+                <td>
+                    {% if r.delta_days is not none and r.delta_days < 0 %}
+                        <span style="color:var(--danger);">{{ r.status_dynamic }}</span>
+                    {% elif r.delta_days == 0 %}
+                        <span style="color:var(--warning);">{{ r.status_dynamic }}</span>
+                    {% else %}
+                        <span>{{ r.status_dynamic }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ r.vehicle_type }}</td>
+                <td>{{ r.parc_ou_immat or '-' }}</td>
+                <td>{{ r.site or '-' }}</td>
+                <td>{{ r.service or '-' }}</td>
+                <td>{{ r.demandeur or '-' }}</td>
+                <td>{{ ('%.0f'|format(r.km)) if r.km is not none else '-' }}</td>
+            </tr>
+            <tr id="cp30-{{ r.id }}" style="display:none; background:#fbfdff;">
+                <td colspan="8">
+                    <strong>Detail CP30</strong> |
+                    Dernier RDV: {{ r.date_dernier_rdv.strftime('%d/%m/%Y') if r.date_dernier_rdv else '-' }} |
+                    Echeance: {{ r.date_peremption.strftime('%d/%m/%Y') if r.date_peremption else '-' }} |
+                    KM: {{ ('%.0f'|format(r.km)) if r.km is not none else '-' }} |
+                    Statut source: {{ r.statut or '-' }} |
+                    Entreprise: {{ r.entreprise or '-' }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+document.getElementById('btn-import-cp30').onclick = function() {
+    document.getElementById('file-input-cp30').click();
+};
+function toggleCp30Detail(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.style.display = (el.style.display === 'none' || !el.style.display) ? 'table-row' : 'none';
+}
+</script>
+{% endblock %}

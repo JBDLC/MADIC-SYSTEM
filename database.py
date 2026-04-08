@@ -565,3 +565,23 @@ class HistoryPeriod(db.Model):
     nb_lignes_importees = db.Column(db.Integer)
     filename = db.Column(db.String(255))
     imported_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class CP30Data(db.Model):
+    """Lignes CP30 importées depuis l'export Excel."""
+    __tablename__ = 'cp30_data'
+
+    id = db.Column(db.Integer, primary_key=True)
+    date_dernier_rdv = db.Column(db.Date, nullable=True)
+    date_peremption = db.Column(db.Date, nullable=True)
+    site = db.Column(db.String(120), nullable=True)
+    parc_ou_immat = db.Column(db.String(80), nullable=True)
+    demandeur = db.Column(db.String(150), nullable=True)
+    service = db.Column(db.String(150), nullable=True)
+    entreprise = db.Column(db.String(150), nullable=True)
+    km = db.Column(db.Float, nullable=True)
+    statut = db.Column(db.String(80), nullable=True)
+    vehicle_type = db.Column(db.String(20), nullable=False, default='prestataire')  # interne|prestataire
+    import_key = db.Column(db.String(255), nullable=False, unique=True)
+    source_filename = db.Column(db.String(255), nullable=True)
+    imported_at = db.Column(db.DateTime, default=datetime.utcnow)

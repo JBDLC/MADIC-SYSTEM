@@ -276,6 +276,7 @@
             <div class="nav-links">
                 <a href="{{ url_for('index') }}" {% if request.endpoint and request.endpoint == 'index' %}class="active"{% endif %}>Tableau de bord</a>
                 <a href="{{ url_for('indicateurs') }}" {% if request.endpoint and request.endpoint == 'indicateurs' %}class="active"{% endif %}>Indicateurs</a>
+                <a href="{{ url_for('cp30_page') }}" {% if request.endpoint and request.endpoint == 'cp30_page' %}class="active"{% endif %}>CP30</a>
                 <a href="{{ url_for('famille_page') }}" {% if request.endpoint and request.endpoint == 'famille_page' %}class="active"{% endif %}>Famille</a>
             </div>
             <div class="nav-right">

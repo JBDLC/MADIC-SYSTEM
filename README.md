@@ -16,14 +16,6 @@ py app.py
 
 Puis ouvrir **http://127.0.0.1:5000** dans le navigateur.
 
-## Créer un fichier Excel de test
-
-```bash
-py create_sample_excel.py
-```
-
-Cela crée `exemple_madic.xlsx` que vous pouvez importer pour tester.
-
 ## Fonctionnalités
 
 1. **Import Excel** : Colonnes attendues - Date, Heure, N° Parc, Service véhicule, Personne, Service personne, Produit, Quantité, Compteur, Unité
