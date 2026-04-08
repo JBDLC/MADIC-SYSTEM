@@ -701,7 +701,7 @@ def cp30_page():
     if selected_ident:
         q = q.filter(CP30Data.parc_ou_immat.ilike(f"%{selected_ident}%"))
 
-    rows = q.order_by(CP30Data.parc_ou_immat.asc(), CP30Data.date_dernier_rdv.desc(), CP30Data.site.asc()).all()
+    rows = q.order_by(CP30Data.date_dernier_rdv.desc(), CP30Data.site.asc()).all()
     today = datetime.utcnow().date()
 
     vehicles_in_scope = sorted({(r.parc_ou_immat or '').strip() for r in rows if (r.parc_ou_immat or '').strip()})
@@ -752,6 +752,9 @@ def cp30_page():
             'last_cp_date': last_cp_date,
             'co': (r.site or '') if (r.site or '').upper().startswith('CO') else '',
         })
+
+    # Lignes sans N° de parc/immat toujours en fin de liste
+    display_rows.sort(key=lambda x: (1 if not (x['parc_ou_immat'] or '').strip() else 0, x['parc_ou_immat'] or ''))
 
     # KPI: nombre de vehicules par service et par CO
     service_co = {}
