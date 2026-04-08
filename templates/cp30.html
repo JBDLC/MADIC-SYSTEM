@@ -129,12 +129,13 @@
 </div>
 
 <div class="card">
-    <h2>Liste detaillee (clic sur la date d'echeance)</h2>
+    <h2>Liste detaillee des CP (retard base sur derniere CP +30 jours)</h2>
     <table>
         <thead>
             <tr>
-                <th>Echeance</th>
+                <th>Date CP</th>
                 <th>Statut dynamique</th>
+                <th>Derniere CP vehicule</th>
                 <th>Type</th>
                 <th>Parc / Immat</th>
                 <th>Site</th>
@@ -147,9 +148,9 @@
             {% for r in rows %}
             <tr>
                 <td>
-                    {% if r.date_peremption %}
+                    {% if r.date_dernier_rdv %}
                     <a href="#" onclick="toggleCp30Detail('cp30-{{ r.id }}'); return false;">
-                        {{ r.date_peremption.strftime('%d/%m/%Y') }}
+                        {{ r.date_dernier_rdv.strftime('%d/%m/%Y') }}
                     </a>
                     {% else %}-{% endif %}
                 </td>
@@ -162,6 +163,7 @@
                         <span>{{ r.status_dynamic }}</span>
                     {% endif %}
                 </td>
+                <td>{{ r.last_cp_date.strftime('%d/%m/%Y') if r.last_cp_date else '-' }}</td>
                 <td>{{ r.vehicle_type }}</td>
                 <td>{{ r.parc_ou_immat or '-' }}</td>
                 <td>{{ r.site or '-' }}</td>
@@ -170,7 +172,7 @@
                 <td>{{ ('%.0f'|format(r.km)) if r.km is not none else '-' }}</td>
             </tr>
             <tr id="cp30-{{ r.id }}" style="display:none; background:#fbfdff;">
-                <td colspan="8">
+                <td colspan="9">
                     <strong>Detail CP30</strong> |
                     Dernier RDV: {{ r.date_dernier_rdv.strftime('%d/%m/%Y') if r.date_dernier_rdv else '-' }} |
                     Echeance: {{ r.date_peremption.strftime('%d/%m/%Y') if r.date_peremption else '-' }} |
@@ -182,6 +184,78 @@
             {% endfor %}
         </tbody>
     </table>
+</div>
+
+<div class="card">
+    <h2>Toutes les CP realisees par vehicule</h2>
+    {% if history_by_vehicle %}
+    <table>
+        <thead>
+            <tr>
+                <th>Vehicule</th>
+                <th>Type</th>
+                <th>CP realisees</th>
+                <th>Derniere CP</th>
+                <th>Statut actuel</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for v in history_by_vehicle %}
+            <tr>
+                <td>
+                    <a href="#" onclick="toggleCp30Detail('veh-{{ loop.index }}'); return false;">{{ v.vehicle }}</a>
+                </td>
+                <td>{{ v.vehicle_type }}</td>
+                <td>{{ v.events_count }}</td>
+                <td>{{ v.last_cp_date.strftime('%d/%m/%Y') if v.last_cp_date else '-' }}</td>
+                <td>
+                    {% if v.delta_days is not none and v.delta_days < 0 %}
+                        <span style="color:var(--danger);">{{ v.status_dynamic }}</span>
+                    {% elif v.delta_days == 0 %}
+                        <span style="color:var(--warning);">{{ v.status_dynamic }}</span>
+                    {% else %}
+                        <span>{{ v.status_dynamic }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            <tr id="veh-{{ loop.index }}" style="display:none; background:#fbfdff;">
+                <td colspan="5">
+                    <table style="margin: 8px 0;">
+                        <thead>
+                            <tr>
+                                <th>Date CP</th>
+                                <th>Echeance source</th>
+                                <th>KM</th>
+                                <th>Site</th>
+                                <th>Service</th>
+                                <th>Demandeur</th>
+                                <th>Entreprise</th>
+                                <th>Statut source</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for e in v.events %}
+                            <tr>
+                                <td>{{ e.date_dernier_rdv.strftime('%d/%m/%Y') if e.date_dernier_rdv else '-' }}</td>
+                                <td>{{ e.date_peremption.strftime('%d/%m/%Y') if e.date_peremption else '-' }}</td>
+                                <td>{{ ('%.0f'|format(e.km)) if e.km is not none else '-' }}</td>
+                                <td>{{ e.site or '-' }}</td>
+                                <td>{{ e.service or '-' }}</td>
+                                <td>{{ e.demandeur or '-' }}</td>
+                                <td>{{ e.entreprise or '-' }}</td>
+                                <td>{{ e.statut or '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--text-muted);">Aucun historique de CP trouve.</p>
+    {% endif %}
 </div>
 
 <script>

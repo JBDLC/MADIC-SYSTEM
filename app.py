@@ -6,7 +6,7 @@ Lancer avec : py app.py
 import io
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify, session
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
@@ -685,9 +685,9 @@ def cp30_page():
 
     q = CP30Data.query
     if date_from:
-        q = q.filter(CP30Data.date_peremption >= date_from)
+        q = q.filter(CP30Data.date_dernier_rdv >= date_from)
     if date_to:
-        q = q.filter(CP30Data.date_peremption <= date_to)
+        q = q.filter(CP30Data.date_dernier_rdv <= date_to)
     if selected_types:
         q = q.filter(CP30Data.vehicle_type.in_(selected_types))
     if selected_sites:
@@ -701,20 +701,40 @@ def cp30_page():
     if selected_ident:
         q = q.filter(CP30Data.parc_ou_immat.ilike(f"%{selected_ident}%"))
 
-    rows = q.order_by(CP30Data.date_peremption.asc(), CP30Data.site.asc(), CP30Data.parc_ou_immat.asc()).all()
+    rows = q.order_by(CP30Data.parc_ou_immat.asc(), CP30Data.date_dernier_rdv.desc(), CP30Data.site.asc()).all()
     today = datetime.utcnow().date()
+
+    vehicles_in_scope = sorted({(r.parc_ou_immat or '').strip() for r in rows if (r.parc_ou_immat or '').strip()})
+    latest_cp_by_vehicle = {}
+    if vehicles_in_scope:
+        all_rows_for_scope = CP30Data.query.filter(CP30Data.parc_ou_immat.in_(vehicles_in_scope)).all()
+        for r in all_rows_for_scope:
+            key = (r.parc_ou_immat or '').strip()
+            if not key:
+                continue
+            cp_date = r.date_dernier_rdv or r.date_peremption
+            if cp_date is None:
+                continue
+            prev = latest_cp_by_vehicle.get(key)
+            if prev is None or cp_date > prev:
+                latest_cp_by_vehicle[key] = cp_date
+
+    def _delay_from_last_cp(vehicle_key):
+        last_cp = latest_cp_by_vehicle.get(vehicle_key)
+        if not last_cp:
+            return None, None, 'Aucune CP enregistree'
+        next_due = last_cp + timedelta(days=30)
+        delta = (next_due - today).days
+        if delta < 0:
+            return last_cp, delta, f"En retard de {abs(delta)} jours"
+        if delta == 0:
+            return last_cp, delta, "A faire aujourd'hui"
+        return last_cp, delta, f"A faire dans {delta} jours"
+
     display_rows = []
     for r in rows:
-        delta = None
-        status_dynamic = 'Date non renseignee'
-        if r.date_peremption:
-            delta = (r.date_peremption - today).days
-            if delta < 0:
-                status_dynamic = f"En retard de {abs(delta)} jours"
-            elif delta == 0:
-                status_dynamic = "A faire aujourd'hui"
-            else:
-                status_dynamic = f"A faire dans {delta} jours"
+        vehicle_key = (r.parc_ou_immat or '').strip()
+        last_cp_date, delta, status_dynamic = _delay_from_last_cp(vehicle_key)
         display_rows.append({
             'id': r.id,
             'date_dernier_rdv': r.date_dernier_rdv,
@@ -729,6 +749,7 @@ def cp30_page():
             'vehicle_type': r.vehicle_type,
             'delta_days': delta,
             'status_dynamic': status_dynamic,
+            'last_cp_date': last_cp_date,
             'co': (r.site or '') if (r.site or '').upper().startswith('CO') else '',
         })
 
@@ -754,6 +775,37 @@ def cp30_page():
             month_counts[key] = month_counts.get(key, 0) + 1
     monthly = [{'month': k, 'count': v} for k, v in sorted(month_counts.items())]
 
+    # Historique des CP realisees par vehicule (sur selection courante)
+    history_by_vehicle = []
+    hist_map = {}
+    for r in display_rows:
+        key = r['parc_ou_immat'] or f"id-{r['id']}"
+        if key not in hist_map:
+            hist_map[key] = {
+                'vehicle': key,
+                'vehicle_type': r['vehicle_type'],
+                'last_cp_date': r['last_cp_date'],
+                'status_dynamic': r['status_dynamic'],
+                'delta_days': r['delta_days'],
+                'events': [],
+            }
+        hist_map[key]['events'].append({
+            'id': r['id'],
+            'date_dernier_rdv': r['date_dernier_rdv'],
+            'date_peremption': r['date_peremption'],
+            'km': r['km'],
+            'site': r['site'],
+            'service': r['service'],
+            'demandeur': r['demandeur'],
+            'entreprise': r['entreprise'],
+            'statut': r['statut'],
+        })
+    for item in hist_map.values():
+        item['events'].sort(key=lambda e: (e['date_dernier_rdv'] or datetime.min.date()), reverse=True)
+        item['events_count'] = len(item['events'])
+        history_by_vehicle.append(item)
+    history_by_vehicle.sort(key=lambda h: (h['delta_days'] if h['delta_days'] is not None else 999999, h['vehicle']))
+
     all_sites = [v[0] for v in db.session.query(CP30Data.site).filter(CP30Data.site.isnot(None), CP30Data.site != '').distinct().order_by(CP30Data.site.asc()).all()]
     all_services = [v[0] for v in db.session.query(CP30Data.service).filter(CP30Data.service.isnot(None), CP30Data.service != '').distinct().order_by(CP30Data.service.asc()).all()]
     all_demandeurs = [v[0] for v in db.session.query(CP30Data.demandeur).filter(CP30Data.demandeur.isnot(None), CP30Data.demandeur != '').distinct().order_by(CP30Data.demandeur.asc()).all()]
@@ -762,6 +814,7 @@ def cp30_page():
     return render_template(
         'cp30.html',
         rows=display_rows,
+        history_by_vehicle=history_by_vehicle,
         monthly=monthly,
         service_co_summary=service_co_summary,
         all_cos=all_cos,
